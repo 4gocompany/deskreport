@@ -1,22 +1,22 @@
-const apiBase = 'http://localhost:3000'
+export const apiBase = import.meta.env.VITE_API_BASE;
 
 enum http {
   POST = 'POST',
-  GET = 'GET'
+  GET = 'GET',
 }
 
 const apiInit: RequestInit = {
   headers: {
-    'Content-Type': 'Application/json'
-  }
-}
+    'Content-Type': 'Application/json',
+  },
+};
 
 export const api = {
   base: (uri: string) => apiBase + uri,
   get: (uri: string) => {
     return fetch(uri, {
       ...apiInit,
-      method: http.GET
+      method: http.GET,
     })
       .then(async (response) => await response.json())
       .then((data) => data);
@@ -25,7 +25,7 @@ export const api = {
     return fetch(uri, {
       ...apiInit,
       method: http.POST,
-      body: JSON.stringify(body)
-    })
-  }
-}
+      body: JSON.stringify(body),
+    });
+  },
+};

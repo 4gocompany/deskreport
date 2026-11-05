@@ -1,49 +1,133 @@
-import { Bell } from 'lucide-react';
 import { Toolbar } from './toolbar';
-import { Notification } from './notification';
-import { useSubmenuNavigation } from '../../store';
+import { useSubmenuNavigation, useUIStore, useTenantStore } from '../../store';
 import { SubNavLink } from './navbar';
+import { ChevronRight, PanelRightOpen, PanelRightClose } from 'lucide-react';
+import { useNavigate, useLocation } from 'react-router-dom';
+import { Dropdown } from '../ui/dropdown';
+import { useTenant } from '../../hooks/useTenant';
+import { useEffect } from 'react';
 
 type TopbarProps = {
   title?: string;
   toolbarOptions?: React.ReactNode;
   children?: React.ReactNode;
   inputSearch?: 'on' | 'off';
+  smartHeader?: boolean;
 };
 
-export function Topbar({ title, children, toolbarOptions, inputSearch }: TopbarProps) {
-  const [navigation] = useSubmenuNavigation((state) => [state.navigation])
+export function Topbar({ title, children, toolbarOptions, inputSearch, smartHeader }: TopbarProps) {
+  const [navigation] = useSubmenuNavigation((state) => [state.navigation]);
+  const { chatSidebarMode, toggleChatSidebarMode } = useUIStore();
+  const { company_id, project_id } = useTenant();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const { organizations, projects, fetchOrganizations, fetchProjects } = useTenantStore();
+
+  const currentCompany = company_id;
+
+  useEffect(() => {
+    fetchOrganizations();
+    if (currentCompany && currentCompany !== '...') {
+      fetchProjects(currentCompany);
+    }
+  }, [fetchOrganizations, fetchProjects, currentCompany]);
+  const isTasksRoute = location.pathname.includes('/tasks');
+  const isOrganizationsRoute = location.pathname === '/organizations';
+
+  const handleCompanyChange = (id: string) => {
+    // Mantém o usuário no mesmo path relativo, apenas trocando o ID da empresa
+    const pathSegments = location.pathname.split('/');
+    // O primeiro segmento é vazio, o segundo é o company_id
+    if (pathSegments.length > 1) {
+      pathSegments[1] = id;
+      navigate(pathSegments.join('/'));
+    } else {
+      navigate(`/${id}/resume`);
+    }
+  };
+
+  const handleProjectChange = (id: string) => {
+    navigate(`/${company_id}/${id}/tasks/boards`);
+  };
+
+  if (smartHeader === undefined) {
+    smartHeader = true;
+  }
+
+  const showToolbar = navigation.length > 0 || !!children || !!toolbarOptions;
 
   return (
-    <div className='toolbar'>
-      <div className='py-3 border-b border-neutral-800/50 w-full flex items-center justify-between px-10'>
-        <div className='flex items-center gap-3'>
-          <h1 className='text-xl items-center whitespace-nowrap'>
-            {title}
-          </h1>
-          <div className='ml-10 flex space-x-2 w-full text-sm'>
-            {
-              navigation.map((subitem) => (
-                <SubNavLink key={subitem.to} name={subitem.name} to={subitem.to} />
-              ))
-            }
+    <>
+      {smartHeader ? (
+        <div className='toolbar bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 transition-colors'>
+          <div className='pt-2 dark:border-zinc-800 w-full flex items-center justify-between px-4'>
+            <div className='flex items-center gap-1 w-full'>
+              <div>
+                <span>Desk</span>
+                <span className="text-lg font-bold">Report</span>
+              </div>
+
+              {!isOrganizationsRoute && (
+                <>
+                  <ChevronRight size={16} strokeWidth={2} className='text-zinc-400 mx-1' />
+                  <Dropdown
+                    options={organizations}
+                    value={currentCompany || ''}
+                    onChange={handleCompanyChange}
+                  />
+                  <ChevronRight size={16} strokeWidth={2} className='text-zinc-400 mx-1' />
+                  <h1 className='items-center whitespace-nowrap font-semibold'>
+                    {title || ''}
+                  </h1>
+                  {isTasksRoute && (
+                    <>
+                      <ChevronRight size={16} strokeWidth={2} className='text-zinc-400 mx-1' />
+                      <Dropdown
+                        options={projects}
+                        value={project_id || 'deskreport'}
+                        onChange={handleProjectChange}
+                      />
+                    </>
+                  )}
+                </>
+              )}
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                onClick={toggleChatSidebarMode}
+                className={`p-1 rounded-lg transition-all ${chatSidebarMode === 'expanded'
+                  ? 'bg-zinc-100 dark:bg-zinc-800 text-blue-500'
+                  : 'text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-900'
+                  }`}
+                title={chatSidebarMode === 'expanded' ? "Colapsar Chat" : "Expandir Chat"}
+              >
+                {chatSidebarMode === 'expanded' ? <PanelRightClose size={20} /> : <PanelRightOpen size={20} />}
+              </button>
+            </div>
           </div>
         </div>
-        <div className='flex gap-4 items-center'>
-          <button className='group relative p-2 hover:bg-neutral-700 focus:bg-neutral-900 rounded-lg'>
-            <Bell size={16} strokeWidth={2} />
-            <Notification />
-          </button>
-          <button className='relative group hover:bg-neutral-700 rounded-full'>
-            <img className='rounded-full bg-indigo-400' width={32} height={32} src='https://robohash.org/rodriggopda.png?set=set5&size=126x126' />
-          </button>
-        </div>
-      </div>
-      {children ? (
-        <Toolbar inputSearch={inputSearch} toolbarOptions={toolbarOptions}>
-          {children}
-        </Toolbar>
       ) : null}
-    </div>
+      {showToolbar && (
+        <div className='toolbar bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 transition-colors'>
+          <div className='border-b border-zinc-200 dark:border-zinc-800 w-full flex items-center justify-between px-4'>
+            <div className='flex items-center gap-3 w-full'>
+              <div className='pt-2 flex w-full text-sm'>
+                {
+                  navigation.map((subitem) => (
+                    <SubNavLink key={subitem.to} name={subitem.name} to={subitem.to} />
+                  ))
+                }
+              </div>
+            </div>
+          </div>
+          {(children || toolbarOptions) ? (
+            <Toolbar inputSearch={inputSearch} toolbarOptions={toolbarOptions}>
+              {children}
+            </Toolbar>
+          ) : null}
+        </div>
+      )}
+    </>
   );
 }
