@@ -26,11 +26,18 @@ Push-Location $Dest
 npm.cmd install --omit=dev --no-audit --no-fund --silent
 Pop-Location
 
+# Atalho no Menu Iniciar para abrir o DeskReport como app, sem terminal
+$Shortcut = (New-Object -ComObject WScript.Shell).CreateShortcut((Join-Path ([Environment]::GetFolderPath('Programs')) 'DeskReport.lnk'))
+$Shortcut.TargetPath = 'wscript.exe'
+$Shortcut.Arguments = '"' + (Join-Path $Dest 'DeskReport.vbs') + '"'
+$Shortcut.WorkingDirectory = $Dest
+$Shortcut.Save()
+
 $UserPath = [Environment]::GetEnvironmentVariable('Path', 'User')
 if (-not (($UserPath -split ';') -contains $Dest)) {
   [Environment]::SetEnvironmentVariable('Path', (@($UserPath, $Dest) | Where-Object { $_ }) -join ';', 'User')
   $env:Path = "$env:Path;$Dest"
 }
 
-Write-Host 'DeskReport instalado. Rode: deskreport setup'
+Write-Host 'DeskReport instalado. Abra pelo Menu Iniciar ou rode: deskreport widget'
 Write-Host 'Abra um novo terminal para usar o comando deskreport.'
