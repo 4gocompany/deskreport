@@ -1,7 +1,7 @@
 // Client local do DeskReport: liga os agentes da máquina com a api.deskreport.com.br
 // Roda os agentes só quando o painel dispara uma tarefa e serve o widget em 127.0.0.1:4399
 // Uso: deskreport [start|setup|login|widget|mcp] [--widget] [--agent <agente>]
-import { spawn, execFile } from 'node:child_process';
+import { spawn, execFile, execFileSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { chmodSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
@@ -761,15 +761,21 @@ function changeModel(req, res) {
 }
 
 // Com stream, o Claude Code devolve eventos em JSON, inclusive o uso da cota
-function agentCommand(agent, prompt, stream = false) {
+// Com session (Chat Lateral) o Antigravity e o Claude Code respondem em JSON, que traz o id da conversa para retomar na próxima mensagem
+function agentCommand(agent, prompt, stream = false, session) {
   const model = config.models?.[agent] ? ['--model', config.models[agent]] : [];
-  if (agent === 'antigravity') return ['agy', ['--dangerously-skip-permissions', ...model, '-p', prompt]];
+  const json = session ? ['--output-format', 'json'] : [];
+  if (agent === 'antigravity') {
+    const resume = session?.externalId ? ['--conversation', session.externalId] : [];
+    return ['agy', ['--dangerously-skip-permissions', ...resume, ...json, ...model, '-p', prompt]];
+  }
   if (agent === 'opencode') return ['opencode', ['run', '--auto', ...model, prompt]];
   if (agent === 'codex') return ['codex', ['exec', '--full-auto', ...model, prompt]];
   if (agent === 'gemini') return ['gemini', ['--yolo', ...model, '-p', prompt]];
   if (agent === 'aider') return ['aider', ['--yes-always', ...model, '--message', prompt]];
-  const output = stream ? ['--output-format', 'stream-json', '--verbose'] : [];
-  return ['claude', ['--permission-mode', 'bypassPermissions', ...output, ...model, '-p', prompt]];
+  const output = stream ? ['--output-format', 'stream-json', '--verbose'] : json;
+  const resume = session?.externalId ? ['--resume', session.externalId] : [];
+  return ['claude', ['--permission-mode', 'bypassPermissions', ...resume, ...output, ...model, '-p', prompt]];
 }
 
 // PATH usado para achar e rodar os agentes, incluindo onde os instaladores costumam colocar os binários
@@ -820,7 +826,7 @@ function runTask(task) {
   sendTelemetry({ agent: task.agent, state: 'working', project: path.basename(cwd), action: `Iniciando: ${task.title}`, taskId: task.taskId });
 
   const stream = task.agent === 'claude';
-  const [bin, child] = startAgent(task.agent, buildPrompt(task), cwd, { DESKREPORT_TASK_ID: task.taskId }, stream);
+  const [bin, child] = startAgent(task.agent, buildPrompt(task, cwd), cwd, { DESKREPORT_TASK_ID: task.taskId }, stream);
 
   let output = '';
   let stopReason = '';
@@ -989,8 +995,8 @@ function limitAlert(agent) {
 }
 
 // Abre o agente sem os segredos do client no ambiente
-function startAgent(agent, prompt, cwd, env = {}, stream = false) {
-  const [bin, args] = agentCommand(agent, prompt, stream);
+function startAgent(agent, prompt, cwd, env = {}, stream = false, session) {
+  const [bin, args] = agentCommand(agent, prompt, stream, session);
   const windows = process.platform === 'win32';
 
   const childEnv = { ...process.env };
@@ -1011,12 +1017,12 @@ function startAgent(agent, prompt, cwd, env = {}, stream = false) {
   return [bin, child];
 }
 
-// Mensagem do Chat Lateral: roda o agente com o histórico e devolve a resposta para o painel
+// Mensagem do Chat Lateral: cada sessão do painel é uma conversa da CLI. Sessão nova começa com o contexto limpo
 function runChat(chat) {
   if (!enabledAgents.includes(chat.agent)) return;
 
-  function reply(content) {
-    socket.emit('machine:chat-reply', { agent: chat.agent, ownerId: chat.ownerId, content });
+  function reply(content, externalId) {
+    socket.emit('machine:chat-reply', { agent: chat.agent, ownerId: chat.ownerId, sessionId: chat.sessionId, externalId, content });
   }
 
   const problem = quotaProblem(chat.agent);
@@ -1027,7 +1033,10 @@ function runChat(chat) {
     return reply(`Pasta ${chat.projectPath} não existe dentro de ${workspaceRoot}.`);
   }
 
-  const history = (chat.history || []).map((m) => `${m.author}: ${m.content}`).join('\n');
+  // Conversa retomada pela CLI já tem o histórico, só o OpenCode e os demais recebem a conversa no prompt
+  const resumable = chat.agent === 'claude' || chat.agent === 'antigravity';
+  const resumed = resumable && chat.externalId;
+  const history = resumed ? '' : (chat.history || []).map((m) => `${m.author}: ${m.content}`).join('\n');
   const prompt = [
     'Você está no Chat Lateral do DeskReport conversando com um membro do time.',
     history ? `Conversa até agora:\n${history}` : '',
@@ -1040,11 +1049,22 @@ function runChat(chat) {
   ].filter(Boolean).join('\n\n');
 
   console.log(`Chat com ${chat.agent} em ${cwd}`);
-  const [bin, child] = startAgent(chat.agent, prompt, cwd);
+  const session = resumable ? { externalId: chat.externalId } : undefined;
+  const [bin, child] = startAgent(chat.agent, prompt, cwd, {}, false, session);
   let output = '';
-  child.stdout.on('data', (chunk) => { output = (output + chunk.toString().replace(/\x1b\[[0-9;]*m/g, '')).slice(-10000); });
+  child.stdout.on('data', (chunk) => { output = (output + chunk.toString().replace(/\x1b\[[0-9;]*m/g, '')).slice(-200000); });
   child.on('error', (error) => reply(`Não foi possível rodar ${bin}: ${error.message}`));
-  child.on('close', (code) => reply(output.trim() || `Parei com código ${code ?? 1} sem resposta.`));
+  child.on('close', (code) => {
+    const fallback = `Parei com código ${code ?? 1} sem resposta.`;
+    if (!session) return reply(output.trim() || fallback);
+    // agy devolve conversation_id e response, o Claude Code devolve session_id e result
+    try {
+      const data = JSON.parse(output);
+      reply(String(data.response ?? data.result ?? '').trim() || fallback, data.conversation_id || data.session_id);
+    } catch {
+      reply(output.trim().slice(-10000) || fallback);
+    }
+  });
 }
 
 // Outro agente chamou este pela sala do time: roda com o histórico e a resposta volta para quem chamou
@@ -1088,23 +1108,36 @@ function plainText(html) {
 }
 
 // Tarefa interrompida (cota ou client reiniciado) volta com o aviso e o último progresso
-function buildPrompt(task) {
-  if (!task.resumed) return taskPrompt(task);
+function buildPrompt(task, cwd) {
+  const prompt = [taskPrompt(task), gitContext(cwd)].filter(Boolean).join('\n\n');
+  if (!task.resumed) return prompt;
   return [
-    taskPrompt(task),
+    prompt,
     'Esta tarefa foi interrompida antes de terminar. Rode git status e git diff nesta pasta para ver o que já foi feito e continue de onde parou.',
     task.progress ? `Últimas saídas antes da parada:\n${task.progress}` : '',
   ].filter(Boolean).join('\n\n');
 }
 
+// Ponto em que o repositório está antes do agente começar: arquivos pendentes e últimos commits
+function gitContext(cwd) {
+  try {
+    const status = execFileSync('git', ['status', '-s'], { cwd, encoding: 'utf8', timeout: 10_000 }).trim();
+    const log = execFileSync('git', ['log', '-n', '3', '--oneline'], { cwd, encoding: 'utf8', timeout: 10_000 }).trim();
+    return [
+      'Estado atual do repositório:',
+      `git status -s:\n${status.slice(0, 3000) || '(sem alterações pendentes)'}`,
+      `git log -n 3 --oneline:\n${log}`,
+    ].join('\n');
+  } catch {
+    return '';
+  }
+}
+
 function taskPrompt(task) {
   const description = plainText(task.description || '');
-  // Comentários antigos dos agentes começavam com o nome em negrito, a API já filtra os novos
-  const humanComments = (task.comments || [])
-    .filter((c) => !/^<p><strong>(Claude Code|OpenCode|Antigravity|Codex|Gemini|Aider)<\/strong>/.test(c))
-    .map(plainText)
-    .filter(Boolean);
-  const notes = humanComments.length > 0 ? `Comentários de revisão na tarefa:\n- ${humanComments.join('\n- ')}` : '';
+  // Todos os comentários anteriores, de pessoas e de agentes, para continuar o trabalho do time
+  const comments = (task.comments || []).map(plainText).filter(Boolean);
+  const notes = comments.length > 0 ? `Comentários anteriores na tarefa:\n- ${comments.join('\n- ')}` : '';
 
   if (task.mode === 'comment') {
     return [
@@ -1143,6 +1176,7 @@ function taskPrompt(task) {
     [
       'Ao finalizar a tarefa, responda no final apenas com um comentário claro e direto em português do que foi feito e da regra de negócio ajustada.',
       'Nunca inclua no resumo final saídas de comandos (como $ cd, npx tsc, git diff, head), logs de terminal nem trechos longos de código.',
+      'Se algo não foi feito ou apresentou problema, termine com uma seção Impedimentos explicando o motivo.',
       'Esse resumo final será o comentário publicado na tarefa.',
     ].join('\n'),
   ].filter(Boolean).join('\n\n');

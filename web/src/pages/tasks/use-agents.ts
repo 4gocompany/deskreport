@@ -51,6 +51,7 @@ export function agentProfile(agent: string): AgentProfile {
 
 export type AgentChatMessage = {
   id: string;
+  sessionId?: string | null;
   agent: string;
   userId: string;
   targetAgent?: string | null;
@@ -58,6 +59,17 @@ export type AgentChatMessage = {
   content: string;
   createdAt: string;
   user?: { id: string; name: string; image?: string | null };
+};
+
+// Sessão do Chat Lateral com um agente. Nova sessão começa com o contexto limpo
+export type AgentChatSession = {
+  id: string;
+  agent: string;
+  title: string;
+  projectPath?: string | null;
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
 };
 
 type AgentsStore = {
@@ -74,7 +86,8 @@ type AgentsStore = {
   setAgents: (agents: AgentStatus[]) => void;
   setTaskLogs: (taskLogs: Record<string, AgentStatus[]>) => void;
   setAgent: (status: AgentStatus) => void;
-  setChatHistory: (agent: string, messages: AgentChatMessage[]) => void;
+  // Mensagens do Chat Lateral separadas por sessão
+  setChatHistory: (sessionId: string, messages: AgentChatMessage[]) => void;
   addChatMessage: (message: AgentChatMessage) => void;
 };
 
@@ -98,13 +111,18 @@ export const useAgentsStore = create<AgentsStore>((set) => ({
     }),
   setAgents: (agents) => set({ agents }),
   setTaskLogs: (taskLogs) => set({ taskLogs }),
-  setChatHistory: (agent, messages) =>
-    set((state) => ({ chatMessages: { ...state.chatMessages, [agent]: messages } })),
+  // Mantém as mensagens que chegaram enquanto o histórico carregava
+  setChatHistory: (sessionId, messages) =>
+    set((state) => {
+      const pending = (state.chatMessages[sessionId] || []).filter((m) => !messages.some((loaded) => loaded.id === m.id));
+      return { chatMessages: { ...state.chatMessages, [sessionId]: [...messages, ...pending] } };
+    }),
   addChatMessage: (message) =>
     set((state) => {
-      const current = state.chatMessages[message.agent] || [];
+      if (!message.sessionId) return state;
+      const current = state.chatMessages[message.sessionId] || [];
       if (current.some((m) => m.id === message.id)) return state;
-      return { chatMessages: { ...state.chatMessages, [message.agent]: [...current, message] } };
+      return { chatMessages: { ...state.chatMessages, [message.sessionId]: [...current, message] } };
     }),
   setAgent: (status) =>
     set((state) => {

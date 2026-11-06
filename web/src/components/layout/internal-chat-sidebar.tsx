@@ -2,13 +2,22 @@ import { useState, useEffect } from 'react';
 import { useOrganization, useSession, authClient } from '../../lib/auth-client';
 import { apiBase } from '../../api/fetcher';
 import { useUIStore } from '../../store';
-import { Search, Circle, MessagesSquare, ArrowLeft, Send, Users, AlertTriangle } from 'lucide-react';
-import { AgentChatMessage, agentProfile, useAgentsStore } from '../../pages/tasks/use-agents';
+import { Search, Circle, MessagesSquare, ArrowLeft, Send, Users, AlertTriangle, Plus, History, Trash2 } from 'lucide-react';
+import { AgentChatMessage, AgentChatSession, agentProfile, useAgentsStore } from '../../pages/tasks/use-agents';
+import { ChatMarkdown } from '../chat/chat-markdown';
 
 type OrgMember = { id: string; userId: string; role: string; user: { name: string; image?: string | null } };
 
 function initials(name: string) {
   return name.split(' ').map((part) => part[0]).join('').slice(0, 2).toUpperCase();
+}
+
+// Agrupa as sessões em Hoje, Ontem e Anteriores pela última mensagem
+function sessionGroup(date: string) {
+  const day = new Date(date).toDateString();
+  if (day === new Date().toDateString()) return 'Hoje';
+  if (day === new Date(Date.now() - 86_400_000).toDateString()) return 'Ontem';
+  return 'Anteriores';
 }
 
 export function InternalChatSidebar() {
@@ -29,22 +38,43 @@ export function InternalChatSidebar() {
   const [approving, setApproving] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
+  const [sessions, setSessions] = useState<AgentChatSession[]>([]);
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [showSessions, setShowSessions] = useState(false);
 
   const isExpanded = chatSidebarMode === 'expanded';
   const isCompact = chatSidebarMode === 'compact';
   const isHidden = chatSidebarMode === 'hidden';
 
+  // Ao abrir o agente, volta para a sessão ativa (ou a mais recente)
   useEffect(() => {
+    setSessions([]);
+    setSessionId(null);
+    setShowSessions(false);
     if (!openAgent || !organization?.id) return;
     authClient
-      .$fetch<AgentChatMessage[]>(`${apiBase}/agents/${openAgent}/messages`, {
+      .$fetch<AgentChatSession[]>(`${apiBase}/agents/${openAgent}/sessions`, {
         headers: { 'x-organization-id': organization.id },
       })
       .then(({ data }) => {
-        if (Array.isArray(data)) setChatHistory(openAgent, data);
+        if (!Array.isArray(data)) return;
+        setSessions(data);
+        setSessionId((data.find((s) => s.active) || data[0])?.id || null);
       })
       .catch(() => {});
-  }, [openAgent, organization?.id, setChatHistory]);
+  }, [openAgent, organization?.id]);
+
+  useEffect(() => {
+    if (!sessionId || !organization?.id) return;
+    authClient
+      .$fetch<AgentChatMessage[]>(`${apiBase}/agents/sessions/${sessionId}/messages`, {
+        headers: { 'x-organization-id': organization.id },
+      })
+      .then(({ data }) => {
+        if (Array.isArray(data)) setChatHistory(sessionId, data);
+      })
+      .catch(() => {});
+  }, [sessionId, organization?.id, setChatHistory]);
 
   useEffect(() => {
     if (!openTeam || !organization?.id) return;
@@ -99,18 +129,50 @@ export function InternalChatSidebar() {
     }
   }
 
+  // Nova sessão: o agente começa sem o contexto da conversa anterior
+  async function createSession() {
+    if (!openAgent || !organization?.id) return null;
+    const { data } = await authClient.$fetch<AgentChatSession>(`${apiBase}/agents/${openAgent}/sessions`, {
+      method: 'POST',
+      body: {},
+      headers: { 'x-organization-id': organization.id },
+    });
+    if (!data) return null;
+    setSessions((current) => [data, ...current.map((s) => ({ ...s, active: false }))]);
+    setSessionId(data.id);
+    setShowSessions(false);
+    return data.id;
+  }
+
+  async function deleteSession(id: string) {
+    if (!organization?.id || !window.confirm('Apagar esta sessão e as mensagens dela?')) return;
+    await authClient.$fetch(`${apiBase}/agents/sessions/${id}`, {
+      method: 'DELETE',
+      headers: { 'x-organization-id': organization.id },
+    });
+    setSessions((current) => current.filter((s) => s.id !== id));
+    if (sessionId === id) setSessionId(null);
+  }
+
   async function handleSendAgentMessage() {
     if (!openAgent || !organization?.id || !draft.trim() || sending) return;
     const text = draft.trim();
     setDraft('');
     setSending(true);
     try {
-      const { data } = await authClient.$fetch<AgentChatMessage>(`${apiBase}/agents/${openAgent}/messages`, {
-        method: 'POST',
-        body: { content: text },
-        headers: { 'x-organization-id': organization.id },
-      });
-      if (data) addChatMessage(data);
+      const id = sessionId || (await createSession());
+      if (!id) return;
+      const { data } = await authClient.$fetch<AgentChatMessage & { session: AgentChatSession }>(
+        `${apiBase}/agents/sessions/${id}/messages`,
+        {
+          method: 'POST',
+          body: { content: text },
+          headers: { 'x-organization-id': organization.id },
+        },
+      );
+      if (!data) return;
+      addChatMessage(data);
+      setSessions((current) => [data.session, ...current.filter((s) => s.id !== id)]);
     } finally {
       setSending(false);
     }
@@ -123,7 +185,8 @@ export function InternalChatSidebar() {
   const openProfile = openAgent ? agentProfile(openAgent) : undefined;
   const agentStatus = openAgent ? statusOf(openAgent) : undefined;
   const agentLogs = agentStatus?.taskId ? taskLogs[agentStatus.taskId] || [] : [];
-  const messages = openAgent ? chatMessages[openAgent] || [] : [];
+  const messages = sessionId ? chatMessages[sessionId] || [] : [];
+  const currentSession = sessions.find((s) => s.id === sessionId);
   const alerts = agents.filter((a) => a.alert);
 
   return (
@@ -224,11 +287,70 @@ export function InternalChatSidebar() {
                 {initials(openMember?.user.name || '')}
               </span>
             )}
-            <div className="flex flex-col overflow-hidden">
+            <div className="flex flex-col overflow-hidden flex-1">
               <span className="text-sm font-medium text-zinc-200 truncate">{openProfile?.name || openMember?.user.name}</span>
-              <span className="text-[10px] text-zinc-500 truncate capitalize">{openProfile?.role || openMember?.role}</span>
+              <span className="text-[10px] text-zinc-500 truncate">
+                {openProfile ? currentSession?.title || 'Nova conversa' : openMember?.role}
+              </span>
             </div>
+            {openProfile && (
+              <>
+                <button
+                  onClick={() => setShowSessions(!showSessions)}
+                  className={`shrink-0 ${showSessions ? 'text-blue-400' : 'text-zinc-500 hover:text-zinc-200'}`}
+                  title="Sessões"
+                >
+                  <History size={15} />
+                </button>
+                <button
+                  onClick={createSession}
+                  className="shrink-0 h-6 px-1.5 rounded-md bg-blue-600 hover:bg-blue-500 text-white text-[10px] font-semibold flex items-center gap-0.5"
+                  title="Nova sessão, limpa o contexto do agente"
+                >
+                  <Plus size={12} />
+                  Nova
+                </button>
+              </>
+            )}
           </div>
+
+          {openProfile && showSessions && (
+            <div className="max-h-64 overflow-y-auto custom-scrollbar border-b border-zinc-800 p-2 space-y-2 text-xs">
+              {sessions.length === 0 && <p className="text-zinc-500 px-1">Nenhuma sessão ainda.</p>}
+              {['Hoje', 'Ontem', 'Anteriores'].map((group) => {
+                const list = sessions.filter((s) => sessionGroup(s.updatedAt) === group);
+                if (list.length === 0) return null;
+                return (
+                  <div key={group} className="space-y-0.5">
+                    <span className="px-1 text-[10px] font-bold text-zinc-500">{group}</span>
+                    {list.map((s) => (
+                      <div
+                        key={s.id}
+                        className={`group/session flex items-center gap-1 rounded-lg px-2 py-1.5 ${s.id === sessionId ? 'bg-blue-600/20 text-blue-100' : 'text-zinc-300 hover:bg-white/5'}`}
+                      >
+                        <button
+                          onClick={() => {
+                            setSessionId(s.id);
+                            setShowSessions(false);
+                          }}
+                          className="flex-1 truncate text-left"
+                        >
+                          {s.title}
+                        </button>
+                        <button
+                          onClick={() => deleteSession(s.id)}
+                          className="opacity-0 group-hover/session:opacity-100 text-zinc-500 hover:text-red-400 shrink-0"
+                          title="Apagar sessão"
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })}
+            </div>
+          )}
 
           <div className="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-2.5 text-xs">
             {openProfile && agentStatus?.state === 'working' && (
@@ -247,7 +369,7 @@ export function InternalChatSidebar() {
 
             {openProfile && messages.length === 0 && (
               <p className="text-zinc-500 py-2">
-                Converse com {openProfile.name} abaixo para criar tarefas, revisar entregas ou executar ajustes no código.
+                Converse com {openProfile.name} abaixo para criar tarefas, revisar entregas ou executar ajustes no código. Cada sessão começa com o contexto limpo.
               </p>
             )}
 
@@ -269,7 +391,11 @@ export function InternalChatSidebar() {
                         {new Date(msg.createdAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
                       </span>
                     </div>
-                    <p className="whitespace-pre-wrap leading-relaxed break-words">{msg.content}</p>
+                    {fromAgent ? (
+                      <ChatMarkdown content={msg.content} />
+                    ) : (
+                      <p className="whitespace-pre-wrap leading-relaxed break-words">{msg.content}</p>
+                    )}
                   </div>
                 );
               })}

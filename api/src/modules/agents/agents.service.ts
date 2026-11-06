@@ -259,7 +259,7 @@ export class AgentsService {
 
     const task = await this.prisma.task.findFirst({
       where: { id: taskId, companyId: organizationId },
-      include: { assignees: { select: { id: true } }, comments: { orderBy: { createdAt: 'asc' } } },
+      include: { assignees: { select: { id: true } }, comments: { include: { user: { select: { name: true } } }, orderBy: { createdAt: 'asc' } } },
     });
     if (!task) throw new NotFoundException('Task not found');
 
@@ -289,7 +289,8 @@ export class AgentsService {
       taskId: task.id,
       title: task.title,
       description: task.description,
-      comments: task.comments.filter((c) => !c.userId.startsWith('agent-user-')).map((c) => c.content),
+      // Todos os comentários, de pessoas e de agentes, para o próximo agente continuar de onde o time parou
+      comments: task.comments.map((c) => `${c.user?.name || 'Membro'}: ${c.content}`),
       project: task.project,
       agent,
       projectPath,
@@ -494,42 +495,96 @@ export class AgentsService {
     return userIds;
   }
 
-  // Chat Lateral: cada usuário tem a própria conversa com cada agente
-  async listChat(organizationId: string, ownerId: string, agent: string) {
+  // Chat Lateral: cada usuário tem as próprias sessões com cada agente. Nova sessão começa com o contexto limpo
+  async listSessions(organizationId: string, userId: string, agent: string) {
     agentName(agent);
-    await this.ensureMember(organizationId, ownerId);
+    await this.ensureMember(organizationId, userId);
+
+    return this.prisma.agentChatSession.findMany({
+      where: { organizationId, userId, agent },
+      orderBy: { updatedAt: 'desc' },
+      take: 50,
+    });
+  }
+
+  // As sessões anteriores ficam no histórico, mas deixam de ser a ativa
+  async createSession(organizationId: string, userId: string, agent: string, data: any) {
+    agentName(agent);
+    checkProjectPath(data?.projectPath);
+    await this.ensureMember(organizationId, userId);
+    const taskId = data?.taskId ? await this.findTaskId(organizationId, String(data.taskId)) : undefined;
+
+    await this.prisma.agentChatSession.updateMany({ where: { organizationId, userId, agent, active: true }, data: { active: false } });
+    return this.prisma.agentChatSession.create({
+      data: { organizationId, userId, agent, title: text(data?.title, 100)?.trim() || undefined, projectPath: data?.projectPath, taskId },
+    });
+  }
+
+  // Sempre presa ao dono e à organização, ninguém abre a sessão de outro só pelo id
+  async findSession(organizationId: string, userId: string, sessionId: string) {
+    const session = await this.prisma.agentChatSession.findFirst({ where: { id: sessionId, organizationId, userId } });
+    if (!session) throw new NotFoundException('Session not found');
+    return session;
+  }
+
+  async listSessionMessages(organizationId: string, userId: string, sessionId: string) {
+    await this.findSession(organizationId, userId, sessionId);
 
     const messages = await this.prisma.agentChatMessage.findMany({
-      where: { organizationId, agent, ownerId },
+      where: { organizationId, sessionId },
       include: { user: { select: { id: true, name: true, image: true } } },
       orderBy: { createdAt: 'desc' },
-      take: 50,
+      take: 100,
     });
     return messages.reverse();
   }
 
-  async saveChatMessage(organizationId: string, ownerId: string, agent: string, data: any) {
-    agentName(agent);
-    const content = text(data?.content, 10000)?.trim();
-    if (!content) throw new BadRequestException('Informe content');
-    await this.ensureMember(organizationId, ownerId);
-    await this.ensureAgentUsers(organizationId, [agent]);
-
-    return this.prisma.agentChatMessage.create({
-      data: { organizationId, agent, ownerId, userId: ownerId, content },
-      include: { user: { select: { id: true, name: true, image: true } } },
-    });
+  async deleteSession(organizationId: string, userId: string, sessionId: string) {
+    const { count } = await this.prisma.agentChatSession.deleteMany({ where: { id: sessionId, organizationId, userId } });
+    if (count === 0) throw new NotFoundException('Session not found');
+    return { id: sessionId };
   }
 
-  // Resposta vinda da máquina, assinada pelo usuário do agente
+  // A primeira mensagem vira o título da sessão e a pasta do projeto fica fixa nela, porque a conversa da CLI mora na pasta
+  async saveSessionMessage(organizationId: string, ownerId: string, sessionId: string, data: any) {
+    const content = text(data?.content, 10000)?.trim();
+    if (!content) throw new BadRequestException('Informe content');
+    checkProjectPath(data?.projectPath);
+    const session = await this.findSession(organizationId, ownerId, sessionId);
+    await this.ensureAgentUsers(organizationId, [session.agent]);
+
+    const message = await this.prisma.agentChatMessage.create({
+      data: { organizationId, sessionId, agent: session.agent, ownerId, userId: ownerId, content },
+      include: { user: { select: { id: true, name: true, image: true } } },
+    });
+    const updated = await this.prisma.agentChatSession.update({
+      where: { id: session.id },
+      data: {
+        title: session.title === 'Nova conversa' ? content.slice(0, 60) : session.title,
+        projectPath: session.projectPath || data?.projectPath,
+        active: true,
+      },
+    });
+    return { message, session: updated };
+  }
+
+  // Resposta vinda da máquina, assinada pelo usuário do agente. Guarda o id da conversa da CLI para retomar na próxima mensagem
   async saveChatReply(organizationId: string, data: any) {
     const content = text(data?.content, 10000)?.trim();
     const ownerId = text(data?.ownerId, 60);
-    if (!agentNames.includes(data?.agent) || !content || !ownerId) return null;
-    if (!(await this.isMember(organizationId, ownerId))) return null;
+    const sessionId = text(data?.sessionId, 60);
+    if (!agentNames.includes(data?.agent) || !content || !ownerId || !sessionId) return null;
 
+    const session = await this.prisma.agentChatSession.findFirst({ where: { id: sessionId, organizationId, userId: ownerId, agent: data.agent } });
+    if (!session) return null;
+
+    const externalId = text(data?.externalId, 100);
+    await this.prisma.agentChatSession.update({
+      where: { id: session.id },
+      data: { externalId: session.externalId || externalId },
+    });
     return this.prisma.agentChatMessage.create({
-      data: { organizationId, agent: data.agent, ownerId, userId: agentUsers[data.agent].id, content },
+      data: { organizationId, sessionId, agent: data.agent, ownerId, userId: agentUsers[data.agent].id, content },
       include: { user: { select: { id: true, name: true, image: true } } },
     });
   }
