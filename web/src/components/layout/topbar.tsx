@@ -54,13 +54,13 @@ export function Topbar({ title, children, toolbarOptions, inputSearch, smartHead
     smartHeader = true;
   }
 
-  const showToolbar = navigation.length > 0 || !!children || !!toolbarOptions;
+  const showToolbar = !!children || !!toolbarOptions;
 
   return (
     <>
       {smartHeader ? (
-        <div className='toolbar bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 transition-colors'>
-          <div className='pt-2 dark:border-zinc-800 w-full flex items-center justify-between px-4'>
+        <div className='bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 border-b border-zinc-200 dark:border-zinc-800 transition-colors'>
+          <div className='h-14 w-full flex items-center justify-between px-4'>
             <div className='flex items-center gap-1 w-full'>
               <div>
                 <span>Desk</span>
@@ -108,25 +108,19 @@ export function Topbar({ title, children, toolbarOptions, inputSearch, smartHead
           </div>
         </div>
       ) : null}
-      {showToolbar && (
-        <div className='toolbar bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 transition-colors'>
-          <div className='border-b border-zinc-200 dark:border-zinc-800 w-full flex items-center justify-between px-4'>
-            <div className='flex items-center gap-3 w-full'>
-              <div className='pt-2 flex w-full text-sm'>
-                {
-                  navigation.map((subitem) => (
-                    <SubNavLink key={subitem.to} name={subitem.name} to={subitem.to} />
-                  ))
-                }
-              </div>
-            </div>
+      {navigation.length > 0 && (
+        <div className='bg-white dark:bg-zinc-950 border-b border-zinc-200 dark:border-zinc-800 px-4 transition-colors'>
+          <div className='flex items-center gap-1 w-full overflow-x-auto'>
+            {navigation.map((subitem) => (
+              <SubNavLink key={subitem.to} name={subitem.name} to={subitem.to} />
+            ))}
           </div>
-          {(children || toolbarOptions) ? (
-            <Toolbar inputSearch={inputSearch} toolbarOptions={toolbarOptions}>
-              {children}
-            </Toolbar>
-          ) : null}
         </div>
+      )}
+      {showToolbar && (
+        <Toolbar inputSearch={inputSearch} toolbarOptions={toolbarOptions}>
+          {children}
+        </Toolbar>
       )}
     </>
   );

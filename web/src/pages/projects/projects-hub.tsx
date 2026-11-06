@@ -60,10 +60,10 @@ export function ProjectsHub() {
   return (
     <div className='animate-slide-up pb-10'>
       {/* HEADER */}
-      <div className='flex items-center justify-between mb-8'>
+      <div className='flex items-center justify-between mb-6'>
         <div>
-          <h2 className='text-2xl font-bold text-zinc-900 dark:text-zinc-100'>Projetos</h2>
-          <p className='text-zinc-500 dark:text-zinc-400 mt-1'>
+          <h2 className='text-xl font-semibold text-zinc-900 dark:text-zinc-100'>Projetos</h2>
+          <p className='text-sm text-zinc-500 dark:text-zinc-400 mt-1'>
             Gerencie todos os projetos dessa organização. Projetos englobam tarefas, kanbans e dashboards.
           </p>
         </div>
@@ -79,7 +79,7 @@ export function ProjectsHub() {
             <div className='w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin'></div>
           </div>
         ) : projects.length === 0 ? (
-          <div className='text-center py-12 text-zinc-500 border-2 border-dashed border-zinc-200 dark:border-zinc-800 rounded-3xl'>
+          <div className='text-center py-12 text-zinc-500 border-2 border-dashed border-zinc-200 dark:border-zinc-800 rounded-xl'>
             Nenhum projeto cadastrado nesta organização. Crie o primeiro!
           </div>
         ) : (
@@ -87,7 +87,7 @@ export function ProjectsHub() {
             {projects.map((project) => (
               <div
                 key={project.id}
-                className='bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-4 rounded-xl flex items-center justify-between hover:border-zinc-300 dark:hover:border-zinc-700 transition-all group'
+                className='bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-5 rounded-xl shadow-sm flex items-center justify-between hover:border-zinc-300 dark:hover:border-zinc-700 transition-all group'
               >
                 <div className='flex items-center gap-4'>
                   {/* Icon Container */}
@@ -100,7 +100,7 @@ export function ProjectsHub() {
                     <h3 className='font-semibold text-zinc-900 dark:text-zinc-100 flex items-center gap-2'>
                       {project.name}
                       {project.status === 'archived' && (
-                        <span className='text-[10px] bg-zinc-100 dark:bg-zinc-800 px-1.5 py-0.5 rounded text-zinc-400'>ARQUIVADO</span>
+                        <span className='text-xs bg-zinc-100 dark:bg-zinc-800 px-1.5 py-0.5 rounded text-zinc-400'>Arquivado</span>
                       )}
                     </h3>
 

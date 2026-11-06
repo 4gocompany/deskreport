@@ -43,8 +43,8 @@ export default function Settings() {
     <Page navigation={navigation}>
       <div className="flex flex-col h-full w-full">
         <Topbar title='Configurações' inputSearch='off' />
-        <div className='flex-1 overflow-y-auto bg-transparent p-6'>
-          <div className="max-w-4xl mx-auto">
+        <div className='flex-1 overflow-y-auto p-6'>
+          <div className="max-w-6xl mx-auto space-y-6">
             {renderContent()}
           </div>
         </div>

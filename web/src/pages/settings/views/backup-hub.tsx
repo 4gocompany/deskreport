@@ -65,11 +65,11 @@ export function BackupHub() {
     return (
         <div className="space-y-12 animate-slide-up pb-10">
             {/* HEADER INFORMATIVO */}
-            <div className="mb-8 border-b border-neutral-200 dark:border-neutral-800 pb-6">
-                <h2 className="text-2xl font-semibold text-neutral-900 dark:text-white flex items-center gap-2 mb-2">
+            <div className="mb-8 border-b border-zinc-200 dark:border-zinc-800 pb-6">
+                <h2 className="text-xl font-semibold text-zinc-900 dark:text-zinc-100 flex items-center gap-2 mb-2">
                     Backup e Exportação
                 </h2>
-                <p className="text-sm text-neutral-500 max-w-2xl">
+                <p className="text-sm text-zinc-500 dark:text-zinc-400 max-w-2xl">
                     Gerencie a segurança dos seus dados. Exporte todo o conteúdo da sua organização para um backup local ou restaure dados de um arquivo anterior.
                 </p>
             </div>

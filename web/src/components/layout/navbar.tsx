@@ -163,7 +163,7 @@ export function MenuNavLink({ to, icon, label }: { to: string; icon: React.React
         to={to}
         className={({ isActive }) =>
           [
-            isActive ? 'text-white font-black' : 'text-zinc-400 font-medium hover:text-zinc-200',
+            isActive ? 'text-white font-semibold' : 'text-zinc-400 font-medium hover:text-zinc-200',
             'flex flex-col items-center justify-center gap-1.5 transition-all duration-200 py-1',
           ].join(' ')
         }
@@ -194,9 +194,9 @@ export function SubNavLink({ name, to }: SubmenuItem) {
       className={({ isActive }) =>
         [
           isActive
-            ? 'text-zinc-900 dark:text-zinc-100 bg-zinc-50 dark:bg-zinc-950 border-zinc-200 dark:border-zinc-800'
-            : 'text-zinc-500 border-transparent',
-          ' border-t border-l border-r -mb-px flex items-center gap-3 py-1 px-4 rounded-t transition-colors',
+            ? 'text-zinc-900 dark:text-zinc-100 border-zinc-900 dark:border-zinc-100'
+            : 'text-zinc-500 dark:text-zinc-400 border-transparent hover:text-zinc-900 dark:hover:text-zinc-200',
+          'border-b-2 -mb-px flex items-center gap-2 py-2.5 px-3 text-sm font-medium whitespace-nowrap transition-colors',
         ].join(' ')
       }
     >

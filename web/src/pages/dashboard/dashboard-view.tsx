@@ -111,17 +111,17 @@ export function DashboardView() {
 
   return (
     <div className='space-y-6 pb-12 overflow-x-hidden'>
-      <div className='flex flex-col md:flex-row items-start md:items-end justify-between mb-8 gap-4 px-1'>
+      <div className='flex flex-col md:flex-row items-start md:items-end justify-between gap-4'>
         <div>
-          <h2 className='text-3xl font-bold tracking-tight text-zinc-900 dark:text-zinc-50'>Painel de Controle</h2>
-          <p className='text-zinc-500 dark:text-zinc-400 mt-1 font-medium'>Análise de dados e performance operacional.</p>
+          <h2 className='text-xl font-semibold text-zinc-900 dark:text-zinc-100'>Painel de Controle</h2>
+          <p className='text-sm text-zinc-500 dark:text-zinc-400 mt-1'>Análise de dados e performance operacional.</p>
         </div>
-        <div className='flex items-center gap-2 bg-zinc-100 dark:bg-zinc-800/50 px-4 py-2 rounded-2xl border border-zinc-200 dark:border-zinc-800 mb-1'>
+        <div className='flex items-center gap-2 bg-zinc-100 dark:bg-zinc-800/50 px-4 py-2 rounded-lg border border-zinc-200 dark:border-zinc-800'>
           <span className='flex h-2 w-2 relative'>
             <span className='animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75'></span>
             <span className='relative inline-flex rounded-full h-2 w-2 bg-emerald-500'></span>
           </span>
-          <span className='text-xs font-bold text-zinc-700 dark:text-zinc-300 uppercase tracking-wider'>Tempo Real</span>
+          <span className='text-xs font-medium text-zinc-700 dark:text-zinc-300'>Tempo Real</span>
         </div>
       </div>
 
@@ -138,11 +138,11 @@ export function DashboardView() {
       </div>
 
       <div className='grid grid-cols-1 xl:grid-cols-3 gap-6'>
-        <div className='xl:col-span-2 bg-white dark:bg-[#121214] border border-zinc-200 dark:border-zinc-800/80 rounded-2xl p-6 flex flex-col relative overflow-hidden group'>
+        <div className='xl:col-span-2 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-5 shadow-sm flex flex-col relative overflow-hidden group'>
           <div className='absolute top-0 right-0 w-64 h-64 bg-blue-500/10 dark:bg-blue-500/5 rounded-full blur-3xl -mx-32 -my-32 transition-transform duration-700 group-hover:scale-150 pointer-events-none'></div>
           <div className='flex items-center justify-between z-10 mb-6'>
             <div>
-              <h4 className='text-lg font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-2'>
+              <h4 className='text-base font-semibold text-zinc-900 dark:text-zinc-100 flex items-center gap-2'>
                 <TrendingUp className='w-5 h-5 text-blue-500' /> Fluxo de Trabalho
               </h4>
               <p className='text-xs text-zinc-500 mt-1'>Velocidade de criação versus conclusão</p>
@@ -176,9 +176,9 @@ export function DashboardView() {
           </div>
         </div>
 
-        <div className='bg-white dark:bg-[#121214] border border-zinc-200 dark:border-zinc-800/80 rounded-2xl p-6 flex flex-col justify-between'>
+        <div className='rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-5 shadow-sm flex flex-col justify-between'>
           <div>
-            <h4 className='text-lg font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-2'>
+            <h4 className='text-base font-semibold text-zinc-900 dark:text-zinc-100 flex items-center gap-2'>
               <PieChart className='w-5 h-5 text-emerald-500' /> Distribuição
             </h4>
           </div>
@@ -197,8 +197,8 @@ export function DashboardView() {
           <div className='grid grid-cols-3 gap-2 mt-4'>
             {taskStatusData.map((d) => (
               <div key={d.name} className='flex flex-col items-center'>
-                <div className='text-[10px] uppercase font-bold text-zinc-500 tracking-wider mb-1'>{d.name}</div>
-                <div className='text-lg font-black' style={{ color: d.color }}>
+                <div className='text-xs font-medium text-zinc-500 dark:text-zinc-400 tracking-wider mb-1 uppercase'>{d.name}</div>
+                <div className='text-base font-semibold' style={{ color: d.color }}>
                   {d.value}
                 </div>
               </div>
@@ -208,8 +208,8 @@ export function DashboardView() {
       </div>
 
       <div className='grid grid-cols-1 lg:grid-cols-3 gap-6'>
-        <div className='lg:col-span-2 bg-white dark:bg-[#121214] border border-zinc-200 dark:border-zinc-800/80 rounded-2xl p-6'>
-          <h4 className='text-lg font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-2 mb-6'>
+        <div className='lg:col-span-2 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-5 shadow-sm'>
+          <h4 className='text-base font-semibold text-zinc-900 dark:text-zinc-100 flex items-center gap-2 mb-6'>
             <Layers className='w-5 h-5 text-violet-500' /> Saúde dos Projetos
           </h4>
           <div className='space-y-4'>
@@ -227,7 +227,7 @@ export function DashboardView() {
                       <p className='text-xs text-zinc-500'>{proj.completed_tasks} de {proj.total_tasks} concluídas</p>
                     </div>
                   </div>
-                  <span className={`px-2 py-1 text-[10px] font-black uppercase rounded-md ${proj.status === 'on_track' ? 'bg-emerald-500/10 text-emerald-500' : proj.status === 'at_risk' ? 'bg-amber-500/10 text-amber-500' : 'bg-red-500/10 text-red-500'}`}>
+                  <span className={`px-2 py-1 text-xs font-medium rounded-md ${proj.status === 'on_track' ? 'bg-emerald-500/10 text-emerald-500' : proj.status === 'at_risk' ? 'bg-amber-500/10 text-amber-500' : 'bg-red-500/10 text-red-500'}`}>
                     {proj.status === 'on_track' ? 'No Prazo' : proj.status === 'at_risk' ? 'Em Risco' : 'Atrasado'}
                   </span>
                 </div>
@@ -239,8 +239,8 @@ export function DashboardView() {
           </div>
         </div>
 
-        <div className='bg-white dark:bg-[#121214] border border-zinc-200 dark:border-zinc-800/80 rounded-2xl p-6'>
-          <h4 className='text-lg font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-2 mb-6'>
+        <div className='rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-5 shadow-sm'>
+          <h4 className='text-base font-semibold text-zinc-900 dark:text-zinc-100 flex items-center gap-2 mb-6'>
             <CalendarDays className='w-5 h-5 text-amber-500' /> Próximas Entregas
           </h4>
           <div className='space-y-4'>
@@ -252,7 +252,7 @@ export function DashboardView() {
                 </div>
                 <div className='flex-1 min-w-0'>
                   <div className='text-sm font-bold truncate text-zinc-900 dark:text-zinc-100'>{task.title}</div>
-                  <div className='text-[10px] text-zinc-500 uppercase font-black'>{task.priority}</div>
+                  <div className='text-xs text-zinc-500 capitalize'>{task.priority}</div>
                 </div>
               </div>
             ))}
@@ -265,10 +265,10 @@ export function DashboardView() {
 
 function KPICard({ title, value, icon, gradient }: { title: string; value: number | string; icon: React.ReactNode; gradient: string }) {
   return (
-    <div className='bg-white dark:bg-[#121214] border border-zinc-200 dark:border-zinc-800/80 p-5 rounded-2xl flex items-start justify-between'>
+    <div className='rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-5 shadow-sm flex items-start justify-between'>
       <div>
-        <h3 className='text-zinc-500 dark:text-zinc-400 text-xs font-bold tracking-wider mb-1 uppercase'>{title}</h3>
-        <div className='text-3xl font-black text-zinc-900 dark:text-white'>{value}</div>
+        <h3 className='text-xs font-medium text-zinc-500 dark:text-zinc-400 tracking-wider mb-1 uppercase'>{title}</h3>
+        <div className='text-2xl font-semibold text-zinc-900 dark:text-zinc-100'>{value}</div>
       </div>
       <div className={`p-2.5 rounded-xl bg-gradient-to-br ${gradient} text-white opacity-90`}>
         {icon}
@@ -283,15 +283,15 @@ function DashboardSkeleton() {
   return (
     <div className='space-y-6 pt-4'>
       <div className='flex justify-between items-end mb-8 px-1'>
-        <div className='space-y-2'><Skeleton className='h-9 w-48' /><Skeleton className='h-4 w-80' /></div>
-        <Skeleton className='h-7 w-32 rounded-full' />
+        <div className='space-y-2'><Skeleton className='h-7 w-48' /><Skeleton className='h-4 w-80' /></div>
+        <Skeleton className='h-7 w-32 rounded-lg' />
       </div>
       <div className='grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5 small-cards'>
-        {[1, 2, 3, 4].map(i => <Skeleton key={i} className='h-24 w-full rounded-2xl' />)}
+        {[1, 2, 3, 4].map(i => <Skeleton key={i} className='h-24 w-full rounded-xl' />)}
       </div>
       <div className='grid grid-cols-1 xl:grid-cols-3 gap-6'>
-        <Skeleton className='xl:col-span-2 h-[400px] rounded-2xl' />
-        <Skeleton className='h-[400px] rounded-2xl' />
+        <Skeleton className='xl:col-span-2 h-[400px] rounded-xl' />
+        <Skeleton className='h-[400px] rounded-xl' />
       </div>
     </div>
   );

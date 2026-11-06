@@ -212,8 +212,8 @@ export function PermissionForm({ onBack, organizationId }: PermissionFormProps) 
             <ArrowLeft size={20} className='text-neutral-500' />
           </button>
           <div>
-            <h2 className='text-2xl font-bold text-neutral-900 dark:text-white mb-1'>Perfil de Acesso</h2>
-            <div className='text-[11px] text-neutral-500 font-medium'>Configure permissões granulares para esta função</div>
+            <h2 className='text-xl font-semibold text-zinc-900 dark:text-zinc-100 mb-1'>Perfil de Acesso</h2>
+            <div className='text-[11px] text-zinc-500 font-medium'>Configure permissões granulares para esta função</div>
           </div>
         </div>
 

@@ -39,10 +39,10 @@ export function OrganizationsHub() {
   return (
     <div className="animate-slide-up pb-10 max-w-6xl mx-auto">
       {/* HEADER */}
-      <div className="flex items-center justify-between mb-8">
+      <div className="flex items-center justify-between mb-6">
         <div>
-          <h2 className="text-2xl font-bold text-zinc-900 dark:text-zinc-100">Organizações</h2>
-          <p className="text-zinc-500 dark:text-zinc-400 mt-1">Gerencie todos os seus espaços de trabalho e alterne entre contextos.</p>
+          <h2 className="text-xl font-semibold text-zinc-900 dark:text-zinc-100">Organizações</h2>
+          <p className="text-sm text-zinc-500 dark:text-zinc-400 mt-1">Gerencie todos os seus espaços de trabalho e alterne entre contextos.</p>
         </div>
         <Button onClick={() => navigate('/setup-organization')} className="gap-2">
           <Plus size={18} />
@@ -56,7 +56,7 @@ export function OrganizationsHub() {
             <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
           </div>
         ) : organizations.length === 0 ? (
-          <div className="text-center py-12 text-zinc-500 border-2 border-dashed border-zinc-200 dark:border-zinc-800 rounded-3xl">
+          <div className="text-center py-12 text-zinc-500 border-2 border-dashed border-zinc-200 dark:border-zinc-800 rounded-xl">
             Nenhuma organização encontrada.
           </div>
         ) : (

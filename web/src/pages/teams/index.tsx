@@ -47,13 +47,13 @@ export default function TeamsPage() {
       <div className='flex flex-col h-full w-full'>
         <Topbar title='Gestão de Equipes' inputSearch='off' />
 
-        <div className='flex-1 overflow-y-auto p-8 bg-zinc-50 dark:bg-transparent'>
-          <div className='max-w-6xl mx-auto animate-slide-up'>
+        <div className='flex-1 overflow-y-auto p-6'>
+          <div className='max-w-6xl mx-auto space-y-6 animate-slide-up'>
             {/* HEADER */}
-            <div className='flex items-center justify-between mb-8'>
+            <div className='flex items-center justify-between'>
               <div>
-                <h2 className='text-2xl font-bold text-zinc-900 dark:text-zinc-100'>Equipes</h2>
-                <p className='text-zinc-500 dark:text-zinc-400 mt-1'>Organize seus usuários em times para facilitar a atribuição de tarefas e projetos.</p>
+                <h2 className='text-xl font-semibold text-zinc-900 dark:text-zinc-100'>Equipes</h2>
+                <p className='text-sm text-zinc-500 dark:text-zinc-400 mt-1'>Organize seus usuários em times para facilitar a atribuição de tarefas e projetos.</p>
               </div>
               <Button onClick={() => setIsCreating(true)} className='gap-2 shrink-0'>
                 <Plus size={18} />
@@ -67,12 +67,12 @@ export default function TeamsPage() {
                   <div className='w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin'></div>
                 </div>
               ) : teams.length === 0 ? (
-                <div className='text-center py-20 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl'>
+                <div className='text-center py-20 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl shadow-sm'>
                   <div className='w-16 h-16 bg-zinc-50 dark:bg-zinc-800 rounded-full flex items-center justify-center mx-auto mb-4'>
                     <Users2 size={32} className='text-zinc-300' />
                   </div>
-                  <h3 className='text-lg font-bold text-zinc-900 dark:text-zinc-100 italic'>Nenhuma equipe criada</h3>
-                  <p className='text-zinc-500 max-w-xs mx-auto mt-2'>Crie sua primeira equipe para começar a organizar melhor suas entregas.</p>
+                  <h3 className='text-base font-semibold text-zinc-900 dark:text-zinc-100'>Nenhuma equipe criada</h3>
+                  <p className='text-sm text-zinc-500 max-w-xs mx-auto mt-2'>Crie sua primeira equipe para começar a organizar melhor suas entregas.</p>
                   <Button onClick={() => setIsCreating(true)} variant='outline' className='mt-6'>
                     Começar agora
                   </Button>
@@ -82,7 +82,7 @@ export default function TeamsPage() {
                   {teams.map((team) => (
                     <div
                       key={team.id}
-                      className='bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-4 rounded-xl flex items-center justify-between hover:border-zinc-300 dark:hover:border-zinc-700 transition-all group'
+                      className='bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-5 rounded-xl shadow-sm flex items-center justify-between hover:border-zinc-300 dark:hover:border-zinc-700 transition-all group'
                     >
                       <div className='flex items-center gap-4'>
                         {/* Icon Container */}
@@ -103,7 +103,7 @@ export default function TeamsPage() {
                               <Briefcase size={14} />
                               Tarefas Ativas: {team._count?.tasks || 0}
                             </div>
-                            {team.description && <div className='flex items-center gap-1.5 text-xs text-zinc-400 italic'>— {team.description}</div>}
+                            {team.description && <div className='flex items-center gap-1.5 text-xs text-zinc-400'>{team.description}</div>}
                           </div>
                         </div>
                       </div>

@@ -36,7 +36,7 @@ export function ChecklistCard({ items }: ChecklistCardProps) {
 
       <div className='flex flex-col md:flex-row md:items-center justify-between gap-6 mb-6 relative z-10'>
         <div>
-          <h3 className='text-lg font-bold text-zinc-900 dark:text-zinc-100'>
+          <h3 className='text-base font-semibold text-zinc-900 dark:text-zinc-100'>
             Foco Principal
           </h3>
           <p className='text-sm text-zinc-500 dark:text-zinc-400 mt-1'>Finalize as configurações essenciais para extrair o máximo do DeskReport.</p>
@@ -57,11 +57,11 @@ export function ChecklistCard({ items }: ChecklistCardProps) {
                 strokeLinecap='round'
               />
             </svg>
-            <span className='absolute text-[10px] font-bold text-emerald-600 dark:text-emerald-400'>{percentage}%</span>
+            <span className='absolute text-xs font-semibold text-emerald-600 dark:text-emerald-400'>{percentage}%</span>
           </div>
           <div>
-            <div className='text-xs font-bold text-zinc-500 tracking-wider mb-0.5 uppercase'>Progresso</div>
-            <div className='text-base font-bold text-zinc-900 dark:text-zinc-100'>{completedCount} de {items.length} concluídos</div>
+            <div className='text-xs font-medium text-zinc-500 mb-0.5'>Progresso</div>
+            <div className='text-sm font-semibold text-zinc-900 dark:text-zinc-100'>{completedCount} de {items.length} concluídos</div>
           </div>
         </div>
       </div>

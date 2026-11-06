@@ -21,22 +21,22 @@ export function RadarCard({ atRiskProjects, delayedProjects, upcomingTasks, over
 
       <div className='flex items-center justify-between gap-6 mb-6 relative z-10'>
         <div>
-          <h3 className='text-lg font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-3'>
+          <h3 className='text-base font-semibold text-zinc-900 dark:text-zinc-100 flex items-center gap-3'>
             Radar de Operações
           </h3>
           <p className='text-sm text-zinc-500 dark:text-zinc-400 mt-1'>Acompanhe as situações que demandam atenção imediata.</p>
         </div>
         <div className={`p-4 rounded-xl flex items-center gap-3 bg-zinc-50 dark:bg-zinc-900/50 border ${totalIssues > 0 ? 'border-amber-200 dark:border-amber-800 text-amber-600 dark:text-amber-400' : 'border-zinc-200 dark:border-zinc-800 text-zinc-400'}`}>
           <AlertCircle size={24} className={totalIssues > 0 ? 'animate-pulse' : ''} />
-          <div className='text-2xl font-bold'>{totalIssues}</div>
+          <div className='text-2xl font-semibold'>{totalIssues}</div>
           <div className='text-xs font-semibold leading-tight'>Alertas Ativos</div>
         </div>
       </div>
 
       <div className='grid grid-cols-1 lg:grid-cols-2 gap-6 relative z-10'>
         <div>
-          <h4 className='text-xs font-semibold text-zinc-400 uppercase tracking-widest mb-4 flex items-center gap-2'>
-            <CalendarDays size={14} className='text-zinc-300' /> Projetos em Alerta ({atRiskProjects.length + delayedProjects.length})
+          <h4 className='text-xs font-medium text-zinc-500 dark:text-zinc-400 mb-4 flex items-center gap-2'>
+            <CalendarDays size={14} className='text-zinc-400' /> Projetos em Alerta ({atRiskProjects.length + delayedProjects.length})
           </h4>
           <div className='space-y-3'>
             {[...delayedProjects, ...atRiskProjects].map(p => (
@@ -63,8 +63,8 @@ export function RadarCard({ atRiskProjects, delayedProjects, upcomingTasks, over
         </div>
 
         <div>
-          <h4 className='text-xs font-semibold text-zinc-400 uppercase tracking-widest mb-4 flex items-center gap-2'>
-            <Clock size={14} className='text-zinc-300' /> Próximas Entregas Críticas ({upcomingTasks.length})
+          <h4 className='text-xs font-medium text-zinc-500 dark:text-zinc-400 mb-4 flex items-center gap-2'>
+            <Clock size={14} className='text-zinc-400' /> Próximas Entregas Críticas ({upcomingTasks.length})
           </h4>
           <div className='grid grid-cols-2 gap-3'>
             {upcomingTasks.slice(0, 4).map(t => (

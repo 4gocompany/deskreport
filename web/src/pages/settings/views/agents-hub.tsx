@@ -4,7 +4,7 @@ import { agentProfile, useAgentsStore } from '../../tasks/use-agents';
 
 const DOWNLOADS = [
   { label: 'Linux', detail: 'Qualquer distro, x64 ou arm64', href: '/downloads/deskreport-linux.tar.gz', icon: <Terminal size={18} /> },
-  { label: 'macOS', detail: 'Apple Silicon (M1, M2, M3, M4)', href: '/downloads/deskreport-macos-arm64.tar.gz', icon: <Apple size={18} /> },
+  { label: 'macOS', detail: 'Apple Silicon e Intel', href: '/downloads/deskreport-macos.tar.gz', icon: <Apple size={18} /> },
   { label: 'Windows', detail: 'Windows 10 e 11, x64', href: '/downloads/deskreport-windows-x64.tar.gz', icon: <Monitor size={18} /> },
 ];
 
@@ -26,8 +26,8 @@ export function AgentsHub() {
   return (
     <div className="space-y-8">
       <div>
-        <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">Agentes</h2>
-        <p className="text-sm text-zinc-500">Instale o DeskReport CLI na sua máquina e conecte o time de agentes à organização.</p>
+        <h2 className="text-xl font-semibold text-zinc-900 dark:text-zinc-100">Agentes</h2>
+        <p className="text-sm text-zinc-500 dark:text-zinc-400">Instale o DeskReport CLI na sua máquina e conecte o time de agentes à organização.</p>
       </div>
 
       <section className="space-y-3">
