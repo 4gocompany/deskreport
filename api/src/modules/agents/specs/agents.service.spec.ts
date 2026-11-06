@@ -124,7 +124,8 @@ describe('AgentsService', () => {
     expect(prisma.taskComment.create.mock.calls[0][0].data.userId).toBe('agent-user-claude');
     const content = prisma.taskComment.create.mock.calls[0][0].data.content;
     expect(content).toContain('&lt;script&gt;');
-    expect(content).toContain('<li>M a.ts</li>');
+    expect(content).toContain('[Modificado]');
+    expect(content).toContain('<code>a.ts</code>');
   });
 
   it('sem Antigravity habilitado a task vai para revisão sem revisor', async () => {

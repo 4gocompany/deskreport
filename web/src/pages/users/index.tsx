@@ -32,7 +32,10 @@ export default function UsersPage() {
                 query: { organizationId: activeOrganizationId }
             });
             if (data?.members) {
-                setMembers(data.members);
+                const humanMembers = data.members.filter(
+                    (m: any) => !m.userId?.startsWith('agent-user-') && !m.user?.email?.endsWith('@agents.deskreport.com.br')
+                );
+                setMembers(humanMembers);
             }
         } catch (e) {
             console.error(e);
