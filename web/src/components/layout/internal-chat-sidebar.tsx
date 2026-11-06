@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useOrganization, useSession, authClient } from '../../lib/auth-client';
 import { apiBase } from '../../api/fetcher';
 import { useUIStore } from '../../store';
-import { Search, Circle, MessagesSquare, ArrowLeft, Send, Users, AlertTriangle, Plus, History, Trash2 } from 'lucide-react';
+import { Search, Circle, MessagesSquare, ArrowLeft, Send, Users, AlertTriangle, Plus, History, Trash2, Copy, Check } from 'lucide-react';
 import { AgentChatMessage, AgentChatSession, agentProfile, useAgentsStore } from '../../pages/tasks/use-agents';
 import { ChatMarkdown } from '../chat/chat-markdown';
 
@@ -18,6 +18,41 @@ function sessionGroup(date: string) {
   if (day === new Date().toDateString()) return 'Hoje';
   if (day === new Date(Date.now() - 86_400_000).toDateString()) return 'Ontem';
   return 'Anteriores';
+}
+
+function formatTokens(n: number) {
+  if (!n || n <= 0) return '0';
+  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M';
+  if (n >= 1_000) return (n / 1_000).toFixed(1) + 'k';
+  return String(Math.round(n));
+}
+
+function formatDateDivider(date: string) {
+  const d = new Date(date);
+  const today = new Date().toDateString();
+  const yesterday = new Date(Date.now() - 86_400_000).toDateString();
+  const target = d.toDateString();
+  if (target === today) return 'Hoje';
+  if (target === yesterday) return 'Ontem';
+  return d.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' });
+}
+
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  function handleCopy() {
+    navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
+  return (
+    <button
+      onClick={handleCopy}
+      className="p-1 rounded bg-zinc-800/90 hover:bg-zinc-700 text-zinc-400 hover:text-zinc-200 transition-colors shadow-sm"
+      title="Copiar mensagem"
+    >
+      {copied ? <Check size={11} className="text-emerald-400" /> : <Copy size={11} />}
+    </button>
+  );
 }
 
 export function InternalChatSidebar() {
@@ -189,6 +224,13 @@ export function InternalChatSidebar() {
   const currentSession = sessions.find((s) => s.id === sessionId);
   const alerts = agents.filter((a) => a.alert);
 
+  const sessionContextTokens = messages.reduce((acc, m) => acc + Math.ceil((m.content?.length || 0) / 4), 0);
+  const contextLimit = 200_000;
+  const tokenBudget = 100_000;
+  const tokensUsed = agentStatus?.tokens || sessionContextTokens;
+  const quotaPercent = Math.min(100, Math.round((tokensUsed / tokenBudget) * 100));
+  const quotaRemaining = Math.max(0, tokenBudget - tokensUsed);
+
   return (
     <aside
       className={`h-screen flex flex-col bg-zinc-900 border-l border-zinc-800 transition-all duration-300 ease-in-out z-40 ${isExpanded ? 'w-72' : (isCompact ? 'w-[74px]' : 'w-0 opacity-0 pointer-events-none')
@@ -288,6 +330,17 @@ export function InternalChatSidebar() {
               </span>
             )}
             <div className="flex flex-col overflow-hidden flex-1">
+              {openProfile && (
+                <div className="flex items-center gap-1.5 text-[9px] font-mono leading-tight mb-0.5 text-zinc-400">
+                  <span className={quotaPercent > 80 ? 'text-amber-400 font-semibold' : 'text-emerald-400 font-semibold'}>
+                    {quotaPercent}% usado
+                  </span>
+                  <span className="text-zinc-600">|</span>
+                  <span>{formatTokens(quotaRemaining)} restantes</span>
+                  <span className="text-zinc-600">|</span>
+                  <span className="text-zinc-400 truncate">Contexto: {formatTokens(sessionContextTokens)} / {formatTokens(contextLimit)}</span>
+                </div>
+              )}
               <span className="text-sm font-medium text-zinc-200 truncate">{openProfile?.name || openMember?.user.name}</span>
               <span className="text-[10px] text-zinc-500 truncate">
                 {openProfile ? currentSession?.title || 'Nova conversa' : openMember?.role}
@@ -352,7 +405,7 @@ export function InternalChatSidebar() {
             </div>
           )}
 
-          <div className="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-2.5 text-xs">
+          <div className="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-1.5 text-xs">
             {openProfile && agentStatus?.state === 'working' && (
               <div className="space-y-1.5 pb-2 border-b border-zinc-800">
                 <div className="rounded-lg bg-blue-500/10 border border-blue-500/20 text-blue-300 p-2">
@@ -368,34 +421,60 @@ export function InternalChatSidebar() {
             )}
 
             {openProfile && messages.length === 0 && (
-              <p className="text-zinc-500 py-2">
-                Converse com {openProfile.name} abaixo para criar tarefas, revisar entregas ou executar ajustes no código. Cada sessão começa com o contexto limpo.
+              <p className="text-zinc-500 py-3 text-center">
+                Converse com {openProfile.name} abaixo. Cada sessão começa com o contexto limpo.
               </p>
             )}
 
             {openProfile &&
-              messages.map((msg) => {
+              messages.map((msg, idx) => {
                 const fromAgent = msg.userId.startsWith('agent-user-');
+                const prevMsg = idx > 0 ? messages[idx - 1] : null;
+                const showDateDivider = !prevMsg || new Date(msg.createdAt).toDateString() !== new Date(prevMsg.createdAt).toDateString();
+                const authorName = msg.user?.name || (fromAgent ? openProfile.name : 'Você');
+
                 return (
-                  <div
-                    key={msg.id}
-                    className={`rounded-xl p-2.5 space-y-1 ${
-                      fromAgent
-                        ? 'bg-zinc-800/80 border border-zinc-700/60 text-zinc-200'
-                        : 'bg-blue-600/20 border border-blue-500/30 text-blue-100 ml-4'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between gap-2 text-[10px] text-zinc-400">
-                      <span className="font-semibold text-zinc-300">{msg.user?.name || (fromAgent ? openProfile.name : 'Você')}</span>
-                      <span>
-                        {new Date(msg.createdAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
-                      </span>
-                    </div>
-                    {fromAgent ? (
-                      <ChatMarkdown content={msg.content} />
-                    ) : (
-                      <p className="whitespace-pre-wrap leading-relaxed break-words">{msg.content}</p>
+                  <div key={msg.id} className="space-y-1">
+                    {showDateDivider && (
+                      <div className="relative flex items-center justify-center my-3">
+                        <div className="absolute inset-0 flex items-center">
+                          <div className="w-full border-t border-zinc-800" />
+                        </div>
+                        <span className="relative px-2.5 py-0.5 text-[9px] font-semibold bg-zinc-900 border border-zinc-800 text-zinc-400 rounded-full">
+                          {formatDateDivider(msg.createdAt)}
+                        </span>
+                      </div>
                     )}
+
+                    <div className="group relative flex items-start gap-2.5 p-2 rounded-lg hover:bg-white/[0.04] transition-colors">
+                      {fromAgent ? (
+                        <span className={`w-7 h-7 rounded-lg ${openProfile.color} text-white text-[10px] font-bold flex items-center justify-center shrink-0 mt-0.5`}>
+                          {openProfile.initials}
+                        </span>
+                      ) : (
+                        <span className="w-7 h-7 rounded-lg bg-blue-600 text-white text-[10px] font-bold flex items-center justify-center shrink-0 mt-0.5">
+                          {session?.user?.name ? initials(session.user.name) : 'EU'}
+                        </span>
+                      )}
+
+                      <div className="flex-1 min-w-0 space-y-1">
+                        <div className="flex items-center gap-2 leading-none">
+                          <span className="font-semibold text-xs text-zinc-200">{authorName}</span>
+                          <span className="text-[10px] text-zinc-500">
+                            {new Date(msg.createdAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                        </div>
+                        {fromAgent ? (
+                          <ChatMarkdown content={msg.content} />
+                        ) : (
+                          <p className="text-xs text-zinc-300 whitespace-pre-wrap leading-relaxed break-words">{msg.content}</p>
+                        )}
+                      </div>
+
+                      <div className="opacity-0 group-hover:opacity-100 absolute right-2 top-2 transition-opacity">
+                        <CopyButton text={msg.content} />
+                      </div>
+                    </div>
                   </div>
                 );
               })}
@@ -404,8 +483,8 @@ export function InternalChatSidebar() {
           </div>
 
           {openProfile && (
-            <div className="p-2.5 border-t border-zinc-800 bg-zinc-950/40">
-              <div className="flex items-end gap-1.5 bg-zinc-800/80 border border-zinc-700/60 rounded-xl p-1.5 focus-within:border-blue-500/60">
+            <div className="p-2.5 border-t border-zinc-800 bg-zinc-950/60">
+              <div className="flex flex-col bg-zinc-800/60 border border-zinc-700/60 rounded-xl focus-within:border-blue-500/60 transition-colors overflow-hidden">
                 <textarea
                   rows={2}
                   value={draft}
@@ -416,17 +495,23 @@ export function InternalChatSidebar() {
                       handleSendAgentMessage();
                     }
                   }}
-                  placeholder={`Mensagem para ${openProfile.name}...`}
-                  className="flex-1 bg-transparent text-xs text-zinc-200 placeholder:text-zinc-500 outline-none resize-none px-1.5 py-1"
+                  placeholder={`Mensagem para ${openProfile.name}... (Shift+Enter quebra linha)`}
+                  className="w-full bg-transparent text-xs text-zinc-200 placeholder:text-zinc-500 outline-none resize-none p-2"
                 />
-                <button
-                  onClick={handleSendAgentMessage}
-                  disabled={!draft.trim() || sending}
-                  className="h-7 w-7 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white flex items-center justify-center shrink-0 transition-colors"
-                  title="Enviar"
-                >
-                  <Send size={13} />
-                </button>
+                <div className="flex items-center justify-between px-2 py-1.5 border-t border-zinc-800/40 bg-zinc-900/30">
+                  <span className="text-[10px] text-zinc-500 font-mono">
+                    Enter envia
+                  </span>
+                  <button
+                    onClick={handleSendAgentMessage}
+                    disabled={!draft.trim() || sending}
+                    className="h-6 px-2 rounded-md bg-blue-600 hover:bg-blue-500 disabled:opacity-30 text-white text-[11px] font-medium flex items-center gap-1 transition-colors"
+                    title="Enviar mensagem"
+                  >
+                    <span>Enviar</span>
+                    <Send size={11} />
+                  </button>
+                </div>
               </div>
             </div>
           )}
