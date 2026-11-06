@@ -27,11 +27,29 @@ model Task {
   team         Team?              @relation(fields: [teamId], references: [id], onDelete: SetNull)
   comments     TaskComment[]
   chatSessions AgentChatSession[]
+  attachments  TaskAttachment[]
   createdAt DateTime      @default(now()) @map("created_at")
   updatedAt DateTime      @updatedAt @map("updated_at")
 
   @@unique([companyId, shortId])
   @@map("tasks")
+}
+
+// Arquivo anexado na tarefa, gravado em uploads/attachments/<companyId>/<taskId>
+model TaskAttachment {
+  id        String   @id @default(uuid())
+  companyId String   @map("company_id")
+  taskId    String   @map("task_id")
+  filename  String
+  path      String
+  size      Int
+  mimeType  String   @map("mime_type")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, taskId])
+  @@map("task_attachments")
 }
 
 model TaskComment {

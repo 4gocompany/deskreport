@@ -259,7 +259,11 @@ export class AgentsService {
 
     const task = await this.prisma.task.findFirst({
       where: { id: taskId, companyId: organizationId },
-      include: { assignees: { select: { id: true } }, comments: { include: { user: { select: { name: true } } }, orderBy: { createdAt: 'asc' } } },
+      include: {
+        assignees: { select: { id: true } },
+        comments: { include: { user: { select: { name: true } } }, orderBy: { createdAt: 'asc' } },
+        attachments: { where: { companyId: organizationId }, select: { id: true, filename: true, size: true }, orderBy: { createdAt: 'asc' } },
+      },
     });
     if (!task) throw new NotFoundException('Task not found');
 
@@ -292,6 +296,8 @@ export class AgentsService {
       // Todos os comentários, de pessoas e de agentes, para o próximo agente continuar de onde o time parou
       comments: task.comments.map((c) => `${c.user?.name || 'Membro'}: ${c.content}`),
       project: task.project,
+      // O deskreport-client baixa cada anexo e passa o caminho local no prompt do agente
+      attachments: task.attachments,
       agent,
       projectPath,
       mode,

@@ -27,6 +27,7 @@ import { useParams } from 'react-router-dom';
 import { useSession } from '../../lib/auth-client';
 import { TaskTerminalDialog } from './components/task-terminal-dialog';
 import { TokenMeter } from './components/token-meter';
+import { TaskAttachments } from './components/task-attachments';
 
 interface TaskDetailDrawerProps {
   task: TaskCardProps | null;
@@ -445,6 +446,9 @@ export function TaskDetailDrawer({
                   </div>
                 )}
               </div>
+
+              {/* ANEXOS */}
+              {task && company_id && <TaskAttachments taskId={task.id} orgId={company_id} />}
 
               {/* COMENTÁRIOS */}
               <div className='space-y-4 pt-4 border-t border-zinc-200 dark:border-zinc-800'>

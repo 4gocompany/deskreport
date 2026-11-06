@@ -805,7 +805,7 @@ function isFile(file) {
   }
 }
 
-function runTask(task) {
+async function runTask(task) {
   const folder = task.projectPath || task.project;
   const cwd = path.resolve(workspaceRoot, folder || '');
 
@@ -824,6 +824,8 @@ function runTask(task) {
   saveState();
   notify(`${agentLabels[task.agent]} começou: ${task.title}`);
   sendTelemetry({ agent: task.agent, state: 'working', project: path.basename(cwd), action: `Iniciando: ${task.title}`, taskId: task.taskId });
+
+  await downloadAttachments(task);
 
   const stream = task.agent === 'claude';
   const [bin, child] = startAgent(task.agent, buildPrompt(task, cwd), cwd, { DESKREPORT_TASK_ID: task.taskId }, stream);
@@ -1103,6 +1105,37 @@ function runTeamMessage(msg) {
   child.on('close', (code) => reply(output.trim() || `Parei com código ${code ?? 1} sem resposta.`));
 }
 
+// Baixa os anexos da tarefa para a pasta do client, fora do repositório, e guarda o caminho local de cada um
+async function downloadAttachments(task) {
+  const dir = path.join(configDir, 'attachments', String(task.taskId).replace(/[^\w-]/g, '_'));
+  for (const attachment of task.attachments || []) {
+    try {
+      const res = await fetch(`${config.apiUrl}/agents/mcp/tasks/${encodeURIComponent(task.taskId)}/attachments/${encodeURIComponent(attachment.id)}/download`, {
+        headers: { Authorization: `Bearer ${config.machineToken}` },
+        signal: AbortSignal.timeout(60_000),
+      });
+      if (!res.ok) throw new Error(`Erro ${res.status}`);
+      mkdirSync(dir, { recursive: true });
+      const file = path.join(dir, path.basename(attachment.filename));
+      writeFileSync(file, Buffer.from(await res.arrayBuffer()));
+      attachment.localPath = file;
+    } catch (error) {
+      console.log(`Não consegui baixar o anexo ${attachment.filename}: ${error.message}`);
+    }
+  }
+}
+
+function attachmentsNote(task) {
+  const attachments = task.attachments || [];
+  if (attachments.length === 0) return '';
+  const lines = attachments.map((a) => `- ${a.filename} (${a.localPath ? `arquivo: ${a.localPath}` : 'não foi possível baixar'})`);
+  return [
+    'Anexos da tarefa:',
+    ...lines,
+    'Leia os anexos antes de começar. Specs em Markdown e textos descrevem o que deve ser feito, imagens mostram telas ou erros e patches ou logs trazem o contexto técnico.',
+  ].join('\n');
+}
+
 function plainText(html) {
   return html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
 }
@@ -1143,6 +1176,7 @@ function taskPrompt(task) {
     return [
       `Tarefa do DeskReport: ${task.title}`,
       description,
+      attachmentsNote(task),
       notes,
       `Novo comentário para você: ${plainText(task.comment || '')}`,
       [
@@ -1158,6 +1192,7 @@ function taskPrompt(task) {
     return [
       `Code Review da tarefa do DeskReport: ${task.title}`,
       description,
+      attachmentsNote(task),
       notes,
       [
         'Você é o revisor do time. Rode `git status -s -- .` e `git diff` nesta pasta e revise as alterações.',
@@ -1172,6 +1207,7 @@ function taskPrompt(task) {
   return [
     `Tarefa do DeskReport: ${task.title}`,
     description,
+    attachmentsNote(task),
     notes,
     [
       'Ao finalizar a tarefa, responda no final apenas com um comentário claro e direto em português do que foi feito e da regra de negócio ajustada.',
