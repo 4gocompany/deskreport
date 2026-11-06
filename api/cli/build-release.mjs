@@ -21,7 +21,13 @@ const packageJson = {
 
 const linuxLauncher = `#!/bin/sh
 DIR="$(dirname "$(readlink -f "$0")")"
-exec node "$DIR/deskreport-client.mjs" "$@"
+NODE="node"
+if ! command -v node >/dev/null 2>&1; then
+  for d in "$HOME"/.nvm/versions/node/*/bin "$HOME"/.local/share/nvm/*/bin "$HOME"/.fnm/current/bin "$HOME"/.volta/bin; do
+    if [ -x "$d/node" ]; then NODE="$d/node"; break; fi
+  done
+fi
+exec "$NODE" "$DIR/deskreport-client.mjs" "$@"
 `;
 
 const macLauncher = `#!/bin/sh

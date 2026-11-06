@@ -85,7 +85,7 @@ function loadConfig() {
   return {
     apiUrl: process.env.DESKREPORT_API_URL || saved.apiUrl || 'https://api.deskreport.com.br',
     webUrl: process.env.DESKREPORT_WEB_URL || saved.webUrl || 'https://app.deskreport.com.br',
-    machineToken: process.env.DESKREPORT_MACHINE_TOKEN || process.env.DESKREPORT_DEV_TOKEN || saved.machineToken,
+    machineToken: process.env.DESKREPORT_MACHINE_TOKEN || saved.machineToken || process.env.DESKREPORT_DEV_TOKEN,
     workspaceRoot: root ? path.resolve(root) : '',
     organizationName: saved.organizationName,
     enabledAgents: Array.isArray(saved.enabledAgents) ? agentNames.filter((agent) => saved.enabledAgents.includes(agent)) : undefined,
@@ -477,6 +477,52 @@ function sendTelemetry(status) {
   if (socket?.connected) socket.emit('machine:telemetry', data);
 }
 
+function cleanSummary(raw) {
+  if (!raw) return '';
+  const marker = raw.lastIndexOf('--- RESUMO DA ENTREGA ---');
+  const base = marker >= 0 ? raw.slice(marker + 25) : raw;
+
+  const lines = base.split('\n');
+  const filtered = [];
+  let skippingCommand = false;
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      if (filtered.length > 0 && filtered[filtered.length - 1] !== '') filtered.push('');
+      continue;
+    }
+
+    if (trimmed.startsWith('$ ') || trimmed.startsWith('> ')) {
+      skippingCommand = true;
+      continue;
+    }
+
+    if (
+      trimmed.startsWith('exit=') ||
+      trimmed === '(no output)' ||
+      /^Parei com código \d+/i.test(trimmed) ||
+      /^\d+:\s*/.test(trimmed) ||
+      /^\d+-\s*/.test(trimmed) ||
+      /\|\s*\d+\s*[+-]+$/.test(trimmed) ||
+      /^\d+\s+files?\s+changed/i.test(trimmed) ||
+      /^\(?node:\d+\)?/i.test(trimmed)
+    ) {
+      continue;
+    }
+
+    if (/^[A-ZÁÉÍÓÚÀÂÊÔÃÕ].*/.test(trimmed) || trimmed.startsWith('- ') || trimmed.startsWith('* ')) {
+      skippingCommand = false;
+    }
+
+    if (!skippingCommand) {
+      filtered.push(trimmed);
+    }
+  }
+
+  return filtered.join('\n').trim();
+}
+
 function finish(task, exitCode, summary, touchedFiles = [], stopped = false) {
   delete running[task.agent];
   saveState();
@@ -759,11 +805,11 @@ function runTask(task) {
       startNext(task.agent);
       return;
     }
-    const summary = [stopReason, output.trim()].filter(Boolean).join('\n\n');
+    const summary = cleanSummary([stopReason, output.trim()].filter(Boolean).join('\n\n'));
     execFile('git', ['status', '-s', '--', '.'], { cwd }, (error, stdout) => {
       const touchedFiles = error ? [] : stdout.split('\n').map((line) => line.trim()).filter(Boolean);
       // Parada pelo usuário nunca conta como sucesso, mesmo se o agente sair com 0
-      finish(task, stoppedByUser ? 1 : code ?? 1, summary.slice(-2000), touchedFiles, stoppedByUser);
+      finish(task, stoppedByUser ? 1 : code ?? 1, summary.slice(-3000), touchedFiles, stoppedByUser);
     });
   });
 }
@@ -967,7 +1013,16 @@ function taskPrompt(task) {
     ].filter(Boolean).join('\n\n');
   }
 
-  return [`Tarefa do DeskReport: ${task.title}`, description, notes].filter(Boolean).join('\n\n');
+  return [
+    `Tarefa do DeskReport: ${task.title}`,
+    description,
+    notes,
+    [
+      'Ao finalizar a tarefa, responda no final apenas com um comentário claro e direto em português do que foi feito e da regra de negócio ajustada.',
+      'Nunca inclua no resumo final saídas de comandos (como $ cd, npx tsc, git diff, head), logs de terminal nem trechos longos de código.',
+      'Esse resumo final será o comentário publicado na tarefa.',
+    ].join('\n'),
+  ].filter(Boolean).join('\n\n');
 }
 
 // Registra o MCP deskreport nos agentes habilitados e tira dos desabilitados
@@ -2100,7 +2155,9 @@ async function runCliCommand(cmd) {
   process.exit(1);
 }
 
-const command = process.argv[2] && !process.argv[2].startsWith('--') ? process.argv[2] : 'start';
+const command = process.argv.includes('--help') || process.argv.includes('-h')
+  ? 'help'
+  : (process.argv[2] && !process.argv[2].startsWith('--') ? process.argv[2] : 'start');
 
 if (command === 'widget') {
   openNativeWidget();

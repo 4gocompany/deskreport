@@ -646,23 +646,86 @@ function toHtml(value: string) {
   return `<p>${escapeHtml(value).replace(/\n/g, '<br>')}</p>`;
 }
 
+function cleanSummary(raw: string | undefined): string {
+  if (!raw) return '';
+  const marker = raw.lastIndexOf('--- RESUMO DA ENTREGA ---');
+  const base = marker >= 0 ? raw.slice(marker + 25) : raw;
+
+  const lines = base.split('\n');
+  const filtered: string[] = [];
+  let skippingCommand = false;
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      if (filtered.length > 0 && filtered[filtered.length - 1] !== '') filtered.push('');
+      continue;
+    }
+
+    if (trimmed.startsWith('$ ') || trimmed.startsWith('> ')) {
+      skippingCommand = true;
+      continue;
+    }
+
+    if (
+      trimmed.startsWith('exit=') ||
+      trimmed === '(no output)' ||
+      /^Parei com código \d+/i.test(trimmed) ||
+      /^\d+:\s*/.test(trimmed) ||
+      /^\d+-\s*/.test(trimmed) ||
+      /\|\s*\d+\s*[+-]+$/.test(trimmed) ||
+      /^\d+\s+files?\s+changed/i.test(trimmed) ||
+      /^\(?node:\d+\)?/i.test(trimmed)
+    ) {
+      continue;
+    }
+
+    if (/^[A-ZÁÉÍÓÚÀÂÊÔÃÕ].*/.test(trimmed) || trimmed.startsWith('- ') || trimmed.startsWith('* ')) {
+      skippingCommand = false;
+    }
+
+    if (!skippingCommand) {
+      filtered.push(trimmed);
+    }
+  }
+
+  return filtered.join('\n').trim();
+}
+
+function formatChangelog(files: string[]): string {
+  if (!files || files.length === 0) return '';
+
+  const list = files.map((file) => {
+    const trimmed = file.trim();
+    const status = trimmed.slice(0, 2).trim();
+    const filePath = trimmed.slice(2).trim();
+
+    let prefix = 'Modificado';
+    if (status === 'A' || status === '??') prefix = 'Novo';
+    else if (status === 'D') prefix = 'Removido';
+
+    return `<li><strong>[${prefix}]</strong> <code>${escapeHtml(filePath)}</code></li>`;
+  });
+
+  return `<p><strong>Changelog de arquivos:</strong></p><ul>${list.join('')}</ul>`;
+}
+
 // O comentário é exibido como HTML no painel, então tudo que vem do agente é escapado
 function finishedComment(data: any) {
-  let result = data.stopped ? 'Execução parada pelo usuário.' : `Parei com código ${Number(data.exitCode)}.`;
-  if (data.exitCode === 0) {
-    result = data.agent === 'antigravity' ? 'Revisão de código concluída.' : 'Tarefa concluída e enviada para revisão.';
+  let result = data.stopped ? 'Execução parada pelo usuário.' : '';
+  if (data.exitCode === 0 && data.agent === 'antigravity') {
+    result = 'Revisão de código concluída.';
   }
-  const summary = text(data.summary, 2000);
-  // Resposta a um comentário: vale só o que o agente escreveu
-  if (data.exitCode === 0 && data.mode === 'comment') result = summary ? '' : 'Comentário respondido.';
+  const summary = cleanSummary(text(data.summary, 4000));
   const files = Array.isArray(data.touchedFiles) ? data.touchedFiles.slice(0, 50).map((file: unknown) => text(file) || '') : [];
 
-  let html = result ? `<p>${result}</p>` : '';
+  let html = '';
+  if (result) html += `<p>${result}</p>`;
   if (summary) html += `<p>${escapeHtml(summary).replace(/\n/g, '<br>')}</p>`;
   if (files.length > 0) {
-    html += '<p>Arquivos alterados:</p><ul>' + files.map((file: string) => `<li>${escapeHtml(file)}</li>`).join('') + '</ul>';
+    html += formatChangelog(files);
   }
-  return html;
+  return html || '<p>Tarefa concluída sem comentários adicionais.</p>';
 }
 
 function escapeHtml(value: string) {

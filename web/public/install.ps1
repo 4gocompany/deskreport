@@ -2,7 +2,7 @@
 # Uso no PowerShell (Windows 10 e 11): irm https://deskreport.com.br/install.ps1 | iex
 $ErrorActionPreference = 'Stop'
 
-$BaseUrl = if ($env:DESKREPORT_URL) { $env:DESKREPORT_URL } else { 'https://deskreport.com.br' }
+$BaseUrl = if ($env:DESKREPORT_URL) { $env:DESKREPORT_URL } else { 'https://app.deskreport.com.br' }
 $Dest = Join-Path $HOME '.deskreport\bin'
 
 if (-not (Get-Command node -ErrorAction SilentlyContinue)) {

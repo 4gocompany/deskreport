@@ -3,9 +3,19 @@
 # Uso: curl -fsSL https://deskreport.com.br/install.sh | sh
 set -e
 
-BASE_URL="${DESKREPORT_URL:-https://deskreport.com.br}"
+BASE_URL="${DESKREPORT_URL:-https://app.deskreport.com.br}"
 DEST="$HOME/.deskreport/bin"
 export PATH="/opt/homebrew/bin:$PATH"
+
+# Se o node nao estiver no PATH, procura nos caminhos do NVM, FNM ou Volta
+if ! command -v node >/dev/null 2>&1; then
+  for dir in "$HOME"/.nvm/versions/node/*/bin "$HOME"/.local/share/nvm/*/bin "$HOME"/.fnm/current/bin "$HOME"/.volta/bin; do
+    if [ -x "$dir/node" ]; then
+      export PATH="$dir:$PATH"
+      break
+    fi
+  done
+fi
 
 case "$(uname -s)" in
   Linux) PACKAGE="deskreport-linux.tar.gz" ;;
