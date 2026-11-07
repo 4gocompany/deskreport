@@ -16,9 +16,10 @@ import {
   Square,
   Terminal,
 } from 'lucide-react';
-import { TaskCardProps, TaskStatus, PRIORITY_CONFIG, STATUS_CONFIG } from './tasks-data';
+import { TaskCardProps, TaskComment, TaskStatus, PRIORITY_CONFIG, STATUS_CONFIG } from './tasks-data';
 import { useState, useEffect } from 'react';
 import { RichEditor } from '../../components/ui/rich-editor';
+import { RichText, toEditorHtml } from '../../components/ui/rich-text';
 import { Button, Dialog } from '../../components/ui';
 import { useTenantStore } from '../../store';
 import { useTaskStore } from './use-task-store';
@@ -37,6 +38,10 @@ interface TaskDetailDrawerProps {
   defaultStatus?: TaskStatus;
 }
 
+function newestFirst(comments: TaskComment[]) {
+  return comments.slice().sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
 function formatTimestamp(iso?: string) {
   if (!iso) return 'Agora';
   return new Date(iso).toLocaleString('pt-BR', {
@@ -45,11 +50,6 @@ function formatTimestamp(iso?: string) {
     hour: '2-digit',
     minute: '2-digit',
   });
-}
-
-function hasHtmlTags(text?: string) {
-  if (!text) return false;
-  return /<[a-z][\s\S]*>/i.test(text);
 }
 
 export function TaskDetailDrawer({
@@ -103,7 +103,7 @@ export function TaskDetailDrawer({
       };
       setDisplayTask(taskWithIds);
       setEditedTitle(task.title);
-      setEditedDescription(task.description || '');
+      setEditedDescription(toEditorHtml(task.description || ''));
       setIsEditingTitle(false);
       setIsEditingDescription(false);
       setIsAddingTag(false);
@@ -310,7 +310,7 @@ export function TaskDetailDrawer({
       scrollableBody={false}
     >
       {displayTask && status && priority && (
-        <div className='flex flex-col h-[82vh] bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 font-sans antialiased overflow-hidden'>
+        <div className='flex flex-col h-[82vh] max-h-[calc(100vh-200px)] bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 font-sans antialiased overflow-hidden'>
           {/* HEADER */}
           <div className='h-12 px-6 flex items-center justify-between border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-950/40 shrink-0'>
             <div className='flex items-center gap-2 text-xs font-medium text-zinc-500 dark:text-zinc-400'>
@@ -411,7 +411,7 @@ export function TaskDetailDrawer({
                         variant='ghost'
                         size='sm'
                         onClick={() => {
-                          setEditedDescription(displayTask.description || '');
+                          setEditedDescription(toEditorHtml(displayTask.description || ''));
                           setIsEditingDescription(false);
                         }}
                       >
@@ -428,16 +428,7 @@ export function TaskDetailDrawer({
                     className='rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/40 dark:bg-zinc-950/30 p-4 min-h-[80px] cursor-pointer hover:border-zinc-300 dark:hover:border-zinc-700 transition-colors'
                   >
                     {displayTask.description ? (
-                      hasHtmlTags(displayTask.description) ? (
-                        <div
-                          dangerouslySetInnerHTML={{ __html: displayTask.description }}
-                          className='prose prose-sm dark:prose-invert max-w-none text-zinc-700 dark:text-zinc-300 leading-relaxed'
-                        />
-                      ) : (
-                        <div className='text-sm text-zinc-700 dark:text-zinc-300 whitespace-pre-wrap leading-relaxed'>
-                          {displayTask.description}
-                        </div>
-                      )
+                      <RichText content={displayTask.description} />
                     ) : (
                       <p className='text-sm text-zinc-400 italic'>
                         Nenhuma descrição informada. Clique para adicionar.
@@ -511,7 +502,7 @@ export function TaskDetailDrawer({
 
                 {/* Lista de Comentários */}
                 <div className='space-y-3'>
-                  {displayTask.comments?.map((c) => (
+                  {newestFirst(displayTask.comments || []).map((c) => (
                     <div
                       key={c.id}
                       className='flex gap-3 p-3 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/60'
@@ -532,16 +523,7 @@ export function TaskDetailDrawer({
                             {formatTimestamp(c.createdAt)}
                           </span>
                         </div>
-                        {hasHtmlTags(c.content) ? (
-                          <div
-                            className='text-sm text-zinc-700 dark:text-zinc-300 prose prose-sm dark:prose-invert max-w-none'
-                            dangerouslySetInnerHTML={{ __html: c.content }}
-                          />
-                        ) : (
-                          <div className='text-sm text-zinc-700 dark:text-zinc-300 whitespace-pre-wrap leading-relaxed'>
-                            {c.content}
-                          </div>
-                        )}
+                        <RichText content={c.content} />
                       </div>
                     </div>
                   ))}
