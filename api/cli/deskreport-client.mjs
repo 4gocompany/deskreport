@@ -60,6 +60,9 @@ const TASK_TIMEOUT_MS = 60 * 60_000;
 const KILL_GRACE_MS = 5_000;
 // Mensagem de cota esgotada dos agentes que não informam o percentual (OpenCode, Gemini, Codex...)
 const LIMIT_PATTERN = /usage limit reached|limit reached|resource_exhausted|quota exceeded|exceeded your current quota/i;
+// Limite por minuto (429): o agente tenta de novo após 2s, 4s e 8s antes de trocar de provedor
+const RATE_PATTERN = /\b429\b|too many requests|rate limit/i;
+const RETRY_DELAYS_MS = [2_000, 4_000, 8_000];
 
 const queues = {};
 const running = {};
@@ -831,8 +834,10 @@ function changeModel(req, res) {
 // Com stream, o Claude Code devolve eventos em JSON, inclusive o uso da cota
 // Com session (Chat Lateral) o Antigravity e o Claude Code respondem em JSON, que traz o id da conversa para retomar na próxima mensagem
 // Claude Code e Codex rodam em sandbox: só escrevem na pasta do projeto e no .git dele. O OpenCode nega acesso a pastas de fora
-function agentCommand(agent, prompt, cwd, stream = false, session) {
-  const model = config.models?.[agent] ? ['--model', config.models[agent]] : [];
+// O modelo fixado na máquina vale mais que o sugerido pelo Micro-Router
+function agentCommand(agent, prompt, cwd, stream = false, session, suggestedModel) {
+  const chosen = config.models?.[agent] || suggestedModel;
+  const model = chosen ? ['--model', chosen] : [];
   const gitDir = projectGitDir(cwd);
   const json = session ? ['--output-format', 'json'] : [];
   if (agent === 'antigravity') {
@@ -940,12 +945,13 @@ async function runTask(task) {
   await downloadAttachments(task);
 
   const stream = task.agent === 'claude';
-  const [bin, child] = startAgent(task.agent, buildPrompt(task, cwd), cwd, { DESKREPORT_TASK_ID: task.taskId }, stream);
+  const [bin, child] = startAgent(task.agent, buildPrompt(task, cwd), cwd, { DESKREPORT_TASK_ID: task.taskId }, stream, undefined, task.suggestedModel);
 
   let output = '';
   let stopReason = '';
   let stoppedByUser = false;
   let requeue = false;
+  let quotaEnded = false;
   let killTimer;
   function stop(reason) {
     if (stopReason) return;
@@ -993,7 +999,11 @@ async function runTask(task) {
   function onChunk(chunk) {
     const text = chunk.toString().replace(/\x1b\[[0-9;]*m/g, '');
     show(text);
-    if (!stream && LIMIT_PATTERN.test(text)) stopForQuota('stop', limitAlert(task.agent));
+    // Cota esgotada no provedor: para e tenta outro agente do mesmo papel ao fechar
+    if (!stream && LIMIT_PATTERN.test(text)) {
+      quotaEnded = true;
+      stop('Cota');
+    }
   }
 
   // Eventos do Claude Code: texto da resposta, resultado final e uso da cota
@@ -1052,6 +1062,16 @@ async function runTask(task) {
       startNext(task.agent);
       return;
     }
+    const limited = !quotaEnded && !stoppedByUser && code !== 0 && RATE_PATTERN.test(output);
+    if (limited && (task.retries || 0) < RETRY_DELAYS_MS.length) {
+      retryLater(task);
+      return;
+    }
+    if (quotaEnded || limited) {
+      task.progress = output.trim().slice(-1500);
+      switchProvider(task);
+      return;
+    }
     const summary = cleanSummary([stopReason, output.trim()].filter(Boolean).join('\n\n'));
     execFile('git', ['status', '-s', '--', '.'], { cwd }, (error, stdout) => {
       const touchedFiles = error ? [] : stdout.split('\n').map((line) => line.trim()).filter(Boolean);
@@ -1059,6 +1079,57 @@ async function runTask(task) {
       finish(task, stoppedByUser ? 1 : code ?? 1, summary.slice(-3000), touchedFiles, stoppedByUser);
     });
   });
+}
+
+// Backoff do 429: o agente continua ocupado com a tarefa durante a espera, e o Parar cancela a nova tentativa
+function retryLater(task) {
+  const delay = RETRY_DELAYS_MS[task.retries || 0];
+  task.retries = (task.retries || 0) + 1;
+  sendTelemetry({ agent: task.agent, state: 'working', action: `Limite 429: nova tentativa ${task.retries} em ${delay / 1000}s`, taskId: task.taskId });
+  const timer = setTimeout(() => {
+    delete stoppers[task.taskId];
+    runTask(task);
+  }, delay);
+  stoppers[task.taskId] = () => {
+    clearTimeout(timer);
+    delete stoppers[task.taskId];
+    finish(task, 1, 'Parado pelo usuário', [], true);
+  };
+}
+
+// Cota esgotada ou 429 depois das tentativas: o agente fica pausado e a tarefa vai para outro agente
+// habilitado com o mesmo papel, com aviso na tarefa. Sem substituto, a tarefa espera a autorização como antes
+async function switchProvider(task) {
+  const agent = task.agent;
+  const roles = config.agentRoles?.[agent] || [];
+  const next = enabledAgents.find((other) => other !== agent && !quotaProblem(other) && config.agentRoles?.[other]?.some((role) => roles.includes(role)));
+  delete running[agent];
+  raiseAlert(agent, 'stop', limitAlert(agent));
+
+  if (next) {
+    try {
+      const model = config.models?.[next] || 'padrão';
+      await mcpApi('POST', `/agents/mcp/tasks/${task.taskId}/comments`, {
+        agent,
+        content: `Aviso de Roteamento: Cota esgotada no provedor principal. Alternando automaticamente para o provedor secundário (harness: ${agentBins[next]}, modelo: ${model}).`,
+      });
+      const progress = task.progress ? `\n\nÚltimas saídas do ${agentLabels[agent]} antes da cota acabar:\n${task.progress}` : '';
+      await mcpApi('POST', `/agents/mcp/tasks/${task.taskId}/dispatch`, {
+        agent: next,
+        mode: task.mode,
+        projectPath: task.projectPath,
+        comment: `${task.comment || ''}${progress}`.trim(),
+      });
+      saveState();
+      return;
+    } catch (error) {
+      console.log(`Troca de provedor falhou: ${error.message}`);
+    }
+  }
+
+  task.resumed = true;
+  queues[agent] = [task, ...(queues[agent] || [])];
+  saveState();
 }
 
 // Guarda a janela mais usada (5 horas ou semana) e alerta de 20 em 20% restante. A pausa e o bloqueio param a tarefa na hora
@@ -1124,8 +1195,8 @@ function limitAlert(agent) {
 }
 
 // Abre o agente sem os segredos do client no ambiente
-function startAgent(agent, prompt, cwd, env = {}, stream = false, session) {
-  const [bin, args] = agentCommand(agent, prompt, cwd, stream, session);
+function startAgent(agent, prompt, cwd, env = {}, stream = false, session, suggestedModel) {
+  const [bin, args] = agentCommand(agent, prompt, cwd, stream, session, suggestedModel);
   const windows = process.platform === 'win32';
 
   const childEnv = { ...process.env };

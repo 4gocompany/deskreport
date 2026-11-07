@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { Prisma } from '@prisma/client';
 import { createHash, randomBytes } from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
+import { classifyTask, routing } from '../tasks/complexity';
 
 export const agentNames = ['antigravity', 'claude', 'opencode', 'codex', 'gemini', 'aider'];
 export const roleNames = ['engineering', 'review', 'qa', 'architecture', 'devops', 'documentation', 'support'];
@@ -372,6 +373,7 @@ export class AgentsService {
       include: taskInclude,
     });
 
+    const route = routing(task.complexity, agent);
     return {
       task: updated,
       taskId: task.id,
@@ -385,6 +387,10 @@ export class AgentsService {
       agent,
       projectPath,
       mode,
+      // Micro-Router: o client usa o modelo sugerido quando a máquina não fixou um modelo para o agente
+      complexity: task.complexity,
+      suggestedProfile: route.profile,
+      suggestedModel: route.suggestedModel,
       // No modo task é o pedido do agente anterior da esteira, quando houver
       comment: text(data?.comment, 10000),
     };
@@ -499,6 +505,7 @@ export class AgentsService {
         ...fields,
         title: fields.title,
         project: fields.project,
+        complexity: classifyTask(fields).complexity,
         companyId: organizationId,
         shortId: (last?.shortId || 0) + 1,
         reporterId: agentUsers[agent].id,

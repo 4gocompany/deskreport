@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { classifyTask, complexities, routing } from './complexity';
 
 @Injectable()
 export class TasksService {
@@ -9,6 +10,8 @@ export class TasksService {
     async create(organizationId: string, data: any) {
         const { assigneeIds, ...rest } = data;
         rest.companyId = organizationId;
+        // Sem complexidade escolhida, o Micro-Router define pelo texto da tarefa
+        if (!complexities.includes(rest.complexity)) rest.complexity = classifyTask(rest).complexity;
 
         const lastTask = await this.prisma.task.findFirst({
             where: { companyId: organizationId },
@@ -60,6 +63,8 @@ export class TasksService {
         const task = await this.ensureTaskInOrg(id, organizationId);
 
         const { title, description, project, status, priority, tags, dueDate, teamId, assigneeIds } = data;
+        // Ajuste manual do tier pela pessoa. Valor fora da lista é ignorado
+        const complexity = complexities.includes(data.complexity) ? data.complexity : undefined;
         if (status === 'release' && task.waitingFor) {
             throw new BadRequestException('A tarefa tem uma pergunta de agente aguardando resposta');
         }
@@ -75,6 +80,7 @@ export class TasksService {
                 tags,
                 dueDate,
                 teamId,
+                complexity,
                 assignees: assigneeIds ? {
                     set: assigneeIds.map((id: string) => ({ id }))
                 } : undefined
@@ -82,6 +88,19 @@ export class TasksService {
         });
 
         return this.findOne(id, organizationId);
+    }
+
+    // POST /tasks/:id/classify: recalcula o tier pelo texto atual e grava
+    async classify(id: string, organizationId: string) {
+        const task = await this.prisma.task.findFirst({
+            where: { id, companyId: organizationId },
+            select: { id: true, shortId: true, title: true, description: true, tags: true }
+        });
+        if (!task) throw new NotFoundException('Task not found');
+
+        const { complexity, reason } = classifyTask(task);
+        await this.prisma.task.update({ where: { id }, data: { complexity } });
+        return { id: task.id, shortId: task.shortId, complexity, routing: { ...routing(complexity), reason } };
     }
 
     async addComment(id: string, organizationId: string, userId: string, content: string) {

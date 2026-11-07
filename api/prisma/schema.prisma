@@ -25,6 +25,8 @@ model Task {
   tokenBudget Int       @default(50000) @map("token_budget")
   // Pergunta aberta por um agente { agent, question, options, createdAt }: segura o Release até a pessoa responder
   waitingFor  Json?     @map("waiting_for")
+  // Tier do Micro-Router: low (free), medium (eco) ou high (frontier). Define o modelo sugerido no despacho
+  complexity  String    @default("low")
 
   team         Team?              @relation(fields: [teamId], references: [id], onDelete: SetNull)
   comments     TaskComment[]

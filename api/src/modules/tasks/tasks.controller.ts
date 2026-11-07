@@ -43,6 +43,11 @@ export class TasksController {
         return this.tasksService.update(id, orgId, data);
     }
 
+    @Post(':id/classify')
+    classify(@ActiveOrg() orgId: string, @Param('id') id: string) {
+        return this.tasksService.classify(id, orgId);
+    }
+
     // Agente escolhido ao lado do botão Comentar ou mencionado no texto (@claude, @opencode...)
     // Ele entra como responsável e recebe o comentário para responder ou executar
     @Post(':id/comments')
