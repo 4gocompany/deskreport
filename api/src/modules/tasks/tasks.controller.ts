@@ -4,6 +4,7 @@ import { ActiveOrg } from '../../auth/active-org.decorator';
 import { ActiveUser } from '../../auth/active-user.decorator';
 import { AgentsGateway } from '../agents/agents.gateway';
 import { agentNames } from '../agents/agents.service';
+import { jevKey } from './complexity';
 
 @Controller('tasks')
 export class TasksController {
@@ -15,6 +16,8 @@ export class TasksController {
     @Post()
     async create(@ActiveOrg() orgId: string, @Body() data: any) {
         let task = await this.tasksService.create(orgId, data);
+        // Sem tier escolhido pela pessoa, a triagem roda antes do despacho
+        if (!data?.complexity) task = { ...task, complexity: (await this.classify(orgId, task.id)).complexity };
 
         // Tarefa criada já com agente atribuído: abre o agente na máquina conectada
         // Sem máquina conectada a tarefa fica criada e o agente pode ser acionado depois pelo dispatch
@@ -43,9 +46,12 @@ export class TasksController {
         return this.tasksService.update(id, orgId, data);
     }
 
+    // Camada 1 (Jev) responde na hora. Sem chave, a máquina refina depois e o painel recebe o task:updated
     @Post(':id/classify')
-    classify(@ActiveOrg() orgId: string, @Param('id') id: string) {
-        return this.tasksService.classify(id, orgId);
+    async classify(@ActiveOrg() orgId: string, @Param('id') id: string) {
+        const result = await this.tasksService.classify(id, orgId);
+        if (!jevKey()) await this.agentsGateway.requestClassification(orgId, result).catch(() => false);
+        return result;
     }
 
     // Agente escolhido ao lado do botão Comentar ou mencionado no texto (@claude, @opencode...)

@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import { classifyTask, complexities, routing } from './complexity';
+import { classifyTask, complexities, routing, triageTask } from './complexity';
 
 @Injectable()
 export class TasksService {
@@ -90,7 +90,7 @@ export class TasksService {
         return this.findOne(id, organizationId);
     }
 
-    // POST /tasks/:id/classify: recalcula o tier pelo texto atual e grava
+    // POST /tasks/:id/classify: recalcula o tier (Jev quando há chave, senão regra por texto) e grava
     async classify(id: string, organizationId: string) {
         const task = await this.prisma.task.findFirst({
             where: { id, companyId: organizationId },
@@ -98,9 +98,9 @@ export class TasksService {
         });
         if (!task) throw new NotFoundException('Task not found');
 
-        const { complexity, reason } = classifyTask(task);
+        const { complexity, reason } = await triageTask(task);
         await this.prisma.task.update({ where: { id }, data: { complexity } });
-        return { id: task.id, shortId: task.shortId, complexity, routing: { ...routing(complexity), reason } };
+        return { id: task.id, shortId: task.shortId, title: task.title, description: task.description, tags: task.tags, complexity, routing: { ...routing(complexity), reason } };
     }
 
     async addComment(id: string, organizationId: string, userId: string, content: string) {

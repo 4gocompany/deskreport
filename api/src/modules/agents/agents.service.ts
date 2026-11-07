@@ -2,7 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { Prisma } from '@prisma/client';
 import { createHash, randomBytes } from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
-import { classifyTask, routing } from '../tasks/complexity';
+import { applySanityCheck, classifyTask, complexities, routing } from '../tasks/complexity';
 
 export const agentNames = ['antigravity', 'claude', 'opencode', 'codex', 'gemini', 'aider'];
 export const roleNames = ['engineering', 'review', 'qa', 'architecture', 'devops', 'documentation', 'support'];
@@ -397,6 +397,20 @@ export class AgentsService {
       // No modo task é o pedido do agente anterior da esteira, quando houver
       comment: text(data?.comment, 10000),
     };
+  }
+
+  // Resultado da triagem local da máquina. A guarda roda de novo aqui, a API não confia no client
+  async saveClassification(organizationId: string, data: any) {
+    if (typeof data?.taskId !== 'string' || !complexities.includes(data?.complexity)) return null;
+
+    const task = await this.prisma.task.findFirst({
+      where: { id: data.taskId, companyId: organizationId },
+      select: { id: true, title: true, description: true, tags: true },
+    });
+    if (!task) return null;
+
+    const { complexity } = applySanityCheck(data.complexity, task);
+    return this.prisma.task.update({ where: { id: task.id }, data: { complexity }, include: taskInclude });
   }
 
   // A tarefa guarda o id do projeto, mas tarefas antigas podem ter o nome

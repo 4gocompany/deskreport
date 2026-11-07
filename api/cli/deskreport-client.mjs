@@ -196,6 +196,7 @@ function connectSocket() {
   socket.on('agent:team-message', runTeamMessage);
   socket.on('agent:quota-continue', (data) => continueAgent(data?.agent));
   socket.on('agent:stop-task', stopTask);
+  socket.on('machine:classify-task', classifyTask);
 }
 
 // Resolve false quando a porta já está em uso, ou seja, outro DeskReport já está rodando
@@ -1197,23 +1198,27 @@ function limitAlert(agent) {
 }
 
 // Abre o agente sem os segredos do client no ambiente
+// Segredos da API e da máquina não chegam aos agentes
+function agentEnv() {
+  const env = { ...process.env };
+  delete env.DATABASE_URL;
+  delete env.PORT;
+  delete env.BETTER_AUTH_URL;
+  delete env.BETTER_AUTH_SECRET;
+  delete env.DESKREPORT_MACHINE_TOKEN;
+  delete env.DESKREPORT_DEV_TOKEN;
+  return env;
+}
+
 function startAgent(agent, prompt, cwd, env = {}, stream = false, session, suggestedModel) {
   const [bin, args] = agentCommand(agent, prompt, cwd, stream, session, suggestedModel);
   const windows = process.platform === 'win32';
-
-  const childEnv = { ...process.env };
-  delete childEnv.DATABASE_URL;
-  delete childEnv.PORT;
-  delete childEnv.BETTER_AUTH_URL;
-  delete childEnv.BETTER_AUTH_SECRET;
-  delete childEnv.DESKREPORT_MACHINE_TOKEN;
-  delete childEnv.DESKREPORT_DEV_TOKEN;
 
   // No Windows os agentes instalados pelo npm são .cmd e só rodam pelo shell, então cada argumento vai entre aspas
   const child = spawn(bin, windows ? args.map(windowsArg) : args, {
     cwd,
     shell: windows,
-    env: { ...childEnv, ...env, PATH: agentPath(), OPENCODE_CONFIG_CONTENT: JSON.stringify({ permission: { external_directory: 'deny' } }) },
+    env: { ...agentEnv(), ...env, PATH: agentPath(), OPENCODE_CONFIG_CONTENT: JSON.stringify({ permission: { external_directory: 'deny' } }) },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   return [bin, child];
@@ -1306,6 +1311,125 @@ function runTeamMessage(msg) {
 }
 
 // Baixa os anexos da tarefa para a pasta do client, fora do repositório, e guarda o caminho local de cada um
+// Triagem da tarefa: só devolve o tier, nunca abre o projeto nem executa código.
+// Com chave usa o Jev, senão o harness local mais barato numa pasta vazia, sem ferramentas e com 15 segundos
+async function classifyTask(task) {
+  if (!task?.taskId || !socket?.connected) return;
+  const result = (await classifyWithJev(task).catch(() => null)) || (await classifyLocally(task).catch(() => null));
+  if (result) socket.emit('task:classified', { taskId: task.taskId, ...result });
+}
+
+async function classifyWithJev(task) {
+  const key = process.env.JEV_API_KEY || process.env.OPENROUTER_API_KEY;
+  if (!key) return null;
+
+  const response = await fetch('https://openrouter.ai/api/alpha/decisions', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+    signal: AbortSignal.timeout(15_000),
+    body: JSON.stringify({
+      model: '~typesafe/jev-latest',
+      state: { title: task.title || '', description: plainText(task.description || ''), tags: task.tags || [] },
+      questions: {
+        complexity: {
+          type: 'choice',
+          instructions: 'Classifique a complexidade técnica desta tarefa de software',
+          criteria: {
+            low: 'Documentação, typos, ajustes cosméticos de texto ou tarefas triviais sem lógica',
+            medium: 'Interfaces, modais, componentes React, CRUDs, migrations de banco, endpoints e rotas',
+            high: 'Arquitetura, segurança multi-tenant, concorrência, autenticação ou refatorações críticas',
+          },
+        },
+      },
+    }),
+  });
+  if (!response.ok) return null;
+
+  const data = await response.json();
+  const answer = data?.answers?.complexity || data?.decisions?.complexity || data?.complexity || data;
+  const choice = answer?.choice || answer?.value;
+  const tiers = ['low', 'medium', 'high'];
+  if (!tiers.includes(choice)) return null;
+  // Pouca confiança sobe um tier por segurança
+  const confidence = Number(answer?.confidence ?? answer?.score ?? 1);
+  const complexity = confidence < 0.65 ? tiers[Math.min(tiers.indexOf(choice) + 1, 2)] : choice;
+  return { complexity, reason: `Jev classificou como ${choice} com confiança ${confidence}`, needsSpec: false };
+}
+
+// Ordem de eleição: OpenCode com modelo gratuito, Claude Haiku, Codex mini e Gemini Flash
+function classifierCommand(prompt) {
+  const installed = detectedAgents.length ? detectedAgents : detectAgents();
+  if (installed.includes('opencode')) return ['opencode', ['run', '--model', 'opencode/big-pickle', prompt]];
+  if (installed.includes('claude')) return ['claude', ['-p', prompt, '--model', 'haiku', '--output-format', 'json', '--tools', '', '--strict-mcp-config']];
+  if (installed.includes('codex')) return ['codex', ['exec', '--sandbox', 'read-only', '--skip-git-repo-check', '--model', 'gpt-5.1-codex-mini', prompt]];
+  if (installed.includes('gemini')) return ['gemini', ['--model', 'gemini-2.5-flash', '-p', prompt]];
+  return null;
+}
+
+function classifyLocally(task) {
+  const tags = Array.isArray(task.tags) ? task.tags.join(', ') : '';
+  const prompt = `Você é o classificador de complexidade do DeskReport.
+Analise a tarefa abaixo e responda APENAS com um objeto JSON na linha final, sem explicações em volta.
+Não use ferramentas, não leia arquivos e não rode comandos.
+
+Tarefa:
+Título: ${task.title || ''}
+Descrição: ${plainText(task.description || '').slice(0, 4000)}
+Tags: ${tags}
+
+Opções de complexidade:
+- "low": Documentação pura (README), correção de textos/typos ou formatação sem código executável.
+- "medium": Telas, modais, componentes de interface, endpoints de API, migrations de banco, CRUDs e integrações.
+- "high": Segurança, isolamento multi-tenant, autenticação, concorrência, pagamentos ou arquitetura crítica.
+
+Formato obrigatório da resposta:
+{"complexity": "low" | "medium" | "high", "reason": "motivo curto em uma frase", "needsSpec": boolean}`;
+
+  const command = classifierCommand(prompt);
+  if (!command) return Promise.resolve(null);
+  const [bin, args] = command;
+  const windows = process.platform === 'win32';
+
+  return new Promise((resolve) => {
+    // Pasta vazia e permissões negadas: o classificador não enxerga o repositório
+    const child = spawn(bin, windows ? args.map(windowsArg) : args, {
+      cwd: emptyDir(),
+      shell: windows,
+      env: {
+        ...agentEnv(),
+        PATH: agentPath(),
+        OPENCODE_CONFIG_CONTENT: JSON.stringify({ permission: { edit: 'deny', bash: 'deny', webfetch: 'deny', external_directory: 'deny' } }),
+      },
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    let output = '';
+    const timer = setTimeout(() => child.kill(), 15_000);
+    child.stdout.on('data', (chunk) => (output += chunk));
+    child.on('error', () => resolve(null));
+    child.on('close', () => {
+      clearTimeout(timer);
+      resolve(parseClassification(output));
+    });
+  });
+}
+
+// O Claude devolve o texto dentro do campo result. O JSON da triagem é o último objeto com complexity
+function parseClassification(output) {
+  let text = output;
+  try {
+    text = JSON.parse(output).result || output;
+  } catch {}
+  const found = text.match(/\{[^{}]*"complexity"[^{}]*\}/g);
+  if (!found) return null;
+  try {
+    const data = JSON.parse(found[found.length - 1]);
+    if (!['low', 'medium', 'high'].includes(data.complexity)) return null;
+    return { complexity: data.complexity, reason: String(data.reason || '').slice(0, 300), needsSpec: data.needsSpec === true };
+  } catch {
+    return null;
+  }
+}
+
 async function downloadAttachments(task) {
   const dir = path.join(attachmentsDir, String(task.taskId).replace(/[^\w-]/g, '_'));
   for (const attachment of task.attachments || []) {

@@ -128,6 +128,25 @@ export class AgentsGateway implements OnGatewayConnection {
     if (status) this.server.to(uiRoom(organizationId)).emit('agent:status', status);
   }
 
+  // Camada 2: a máquina devolve a triagem feita pelo harness local mais barato
+  @SubscribeMessage('task:classified')
+  async taskClassified(@ConnectedSocket() client: Socket, @MessageBody() data: any) {
+    if (client.data?.kind !== 'machine') return;
+
+    const organizationId = client.data.organizationId;
+    const task = await this.agentsService.saveClassification(organizationId, data);
+    if (task) this.server.to(uiRoom(organizationId)).emit('task:updated', task);
+  }
+
+  // Sem chave do Jev na API, uma única máquina da organização faz a triagem em modo somente leitura
+  async requestClassification(organizationId: string, task: { id: string; title?: string | null; description?: string | null; tags?: unknown }) {
+    const [machine] = await this.server.in(machineRoom(organizationId)).fetchSockets();
+    if (!machine) return false;
+
+    machine.emit('machine:classify-task', { taskId: task.id, title: task.title, description: task.description, tags: task.tags });
+    return true;
+  }
+
   // Resposta do agente no Chat Lateral, só o dono da conversa recebe
   @SubscribeMessage('machine:chat-reply')
   async chatReply(@ConnectedSocket() client: Socket, @MessageBody() data: any) {
