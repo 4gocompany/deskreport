@@ -12,7 +12,7 @@ O objetivo é eliminar o desperdício de tokens caros de raciocínio profundo (f
 
 ### 2.1 Alteração no Prisma Schema
 
-No arquivo [prisma/schema.prisma:9](https://github.com/rodriggopda/4gocompany/blob/main/api.deskreport.com.br/prisma/schema.prisma#L9), o model `Task` recebe o campo de complexidade:
+No arquivo [prisma/schema.prisma:9](prisma/schema.prisma#L9), o model `Task` recebe o campo de complexidade:
 
 ```prisma
 model Task {
@@ -102,7 +102,7 @@ O classificador avalia o título, a descrição, as tags e os arquivos mencionad
 
 ### 4.2 Resolução no Despacho Local
 
-No arquivo [cli/deskreport-client.mjs:834](https://github.com/rodriggopda/4gocompany/blob/main/api.deskreport.com.br/cli/deskreport-client.mjs#L834), o comando do agente respeita o perfil indicado caso nenhum modelo fixo tenha sido sobrescrito na configuração local (`config.models[agent]`).
+No arquivo [cli/deskreport-client.mjs:834](cli/deskreport-client.mjs#L834), o comando do agente respeita o perfil indicado caso nenhum modelo fixo tenha sido sobrescrito na configuração local (`config.models[agent]`).
 
 ---
 
@@ -110,7 +110,7 @@ No arquivo [cli/deskreport-client.mjs:834](https://github.com/rodriggopda/4gocom
 
 ### 5.1 Backoff Exponencial para 429 (RPM)
 
-Quando a execução de um agente no client local [cli/deskreport-client.mjs:920](https://github.com/rodriggopda/4gocompany/blob/main/api.deskreport.com.br/cli/deskreport-client.mjs#L920) interceptar erro 429 ou esgotamento temporário:
+Quando a execução de um agente no client local [cli/deskreport-client.mjs:920](cli/deskreport-client.mjs#L920) interceptar erro 429 ou esgotamento temporário:
 - Tentativa 1: pausa de 2 segundos antes da retentativa.
 - Tentativa 2: pausa de 4 segundos antes da retentativa.
 - Tentativa 3: pausa de 8 segundos antes da retentativa.
@@ -119,7 +119,7 @@ Quando a execução de um agente no client local [cli/deskreport-client.mjs:920]
 
 Se as 3 tentativas falharem ou o harness retornar erro definitivo de cota esgotada (`LIMIT_PATTERN`):
 1. O client seleciona o provedor secundário configurado para a máquina ou o próximo agente habilitado daquele papel.
-2. É postado automaticamente um comentário na tarefa via API [src/modules/tasks/tasks.controller.ts:48](https://github.com/rodriggopda/4gocompany/blob/main/api.deskreport.com.br/src/modules/tasks/tasks.controller.ts#L48):
+2. É postado automaticamente um comentário na tarefa via API [src/modules/tasks/tasks.controller.ts:48](src/modules/tasks/tasks.controller.ts#L48):
    `"Aviso de Roteamento: Cota esgotada no provedor principal. Alternando automaticamente para o provedor secundário (harness: <nome>, modelo: <modelo>)."`
 3. A tarefa é reiniciada no novo harness sem perda de contexto ou intervenção manual necessária.
 
@@ -148,13 +148,13 @@ Se as 3 tentativas falharem ou o harness retornar erro definitivo de cota esgota
 
 ### 6.2 Criação e Atualização de Tarefas
 
-Em [src/modules/tasks/tasks.controller.ts:16](https://github.com/rodriggopda/4gocompany/blob/main/api.deskreport.com.br/src/modules/tasks/tasks.controller.ts#L16) e [src/modules/tasks/tasks.service.ts:9](https://github.com/rodriggopda/4gocompany/blob/main/api.deskreport.com.br/src/modules/tasks/tasks.service.ts#L9):
+Em [src/modules/tasks/tasks.controller.ts:16](src/modules/tasks/tasks.controller.ts#L16) e [src/modules/tasks/tasks.service.ts:9](src/modules/tasks/tasks.service.ts#L9):
 - No `POST /tasks`: se o cliente não enviar `complexity`, o classificador roda automaticamente e grava o valor inicial.
 - No `PUT /tasks/:id`: permite ajuste manual do campo `complexity` caso o usuário queira forçar outro tier.
 
 ### 6.3 Payload de Despacho (Dispatch)
 
-Em [src/modules/agents/agents.service.ts:336](https://github.com/rodriggopda/4gocompany/blob/main/api.deskreport.com.br/src/modules/agents/agents.service.ts#L336) e [src/modules/agents/agents.gateway.ts:212](https://github.com/rodriggopda/4gocompany/blob/main/api.deskreport.com.br/src/modules/agents/agents.gateway.ts#L212):
+Em [src/modules/agents/agents.service.ts:336](src/modules/agents/agents.service.ts#L336) e [src/modules/agents/agents.gateway.ts:212](src/modules/agents/agents.gateway.ts#L212):
 O evento `agent:dispatch` emitido para a máquina conectada inclui os novos atributos:
 ```json
 {
