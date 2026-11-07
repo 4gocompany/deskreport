@@ -233,8 +233,10 @@ export function InternalChatSidebar() {
   const quotaRemaining = Math.max(0, tokenBudget - tokensUsed);
 
   return (
+    // O chat fica preso à direita e cresce para a esquerda na tela cheia
+    <div className={`h-screen shrink-0 transition-all duration-300 ease-in-out ${isExpanded ? 'w-72' : (isCompact ? 'w-[74px]' : 'w-0')}`}>
     <aside
-      className={`h-screen shrink-0 flex flex-col bg-zinc-900 border-l border-zinc-800 transition-all duration-300 ease-in-out ${isExpanded && isFull ? 'fixed inset-0 w-full z-50' : 'z-40'} ${isExpanded ? (isFull ? '' : 'w-72') : (isCompact ? 'w-[74px]' : 'w-0 opacity-0 pointer-events-none')
+      className={`fixed top-0 right-0 h-screen flex flex-col bg-zinc-900 border-l border-zinc-800 transition-all duration-300 ease-in-out ${isExpanded && isFull ? 'z-50' : 'z-40'} ${isExpanded ? (isFull ? 'w-screen' : 'w-72') : (isCompact ? 'w-[74px]' : 'w-0 opacity-0 pointer-events-none')
         }`}
     >
       <div className={`p-4 border-b border-zinc-800 flex items-center ${isExpanded ? 'justify-between' : 'justify-center py-6'}`}>
@@ -645,5 +647,6 @@ export function InternalChatSidebar() {
         </div>
       </div>
     </aside>
+    </div>
   );
 }
