@@ -784,7 +784,7 @@ function agentCommand(agent, prompt, stream = false, session) {
     return ['agy', ['--dangerously-skip-permissions', ...resume, ...json, ...model, '-p', prompt]];
   }
   if (agent === 'opencode') return ['opencode', ['run', '--auto', ...model, prompt]];
-  if (agent === 'codex') return ['codex', ['exec', '--full-auto', ...model, prompt]];
+  if (agent === 'codex') return ['codex', ['exec', '--dangerously-bypass-approvals-and-sandbox', ...model, prompt]];
   if (agent === 'gemini') return ['gemini', ['--yolo', ...model, '-p', prompt]];
   if (agent === 'aider') return ['aider', ['--yes-always', ...model, '--message', prompt]];
   const output = stream ? ['--output-format', 'stream-json', '--verbose'] : json;
