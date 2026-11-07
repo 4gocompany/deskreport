@@ -26,7 +26,7 @@ export default function ChatBox() {
     <Page navigation={navigation}>
       <Topbar title='Conversas' inputSearch='off' />
 
-      <div className='flex h-[calc(100vh-68px)] overflow-hidden bg-zinc-50/50 dark:bg-zinc-950/50 transition-colors'>
+      <div className='flex flex-1 min-h-0 overflow-hidden bg-zinc-50/50 dark:bg-zinc-950/50 transition-colors'>
         {/* Sidebar de Contatos */}
         <div className='w-80 border-r border-zinc-200 dark:border-zinc-800 flex flex-col bg-white dark:bg-zinc-950 transition-colors'>
           <div className='p-4 border-b border-zinc-100 dark:border-zinc-800'>

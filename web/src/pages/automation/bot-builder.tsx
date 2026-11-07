@@ -196,7 +196,7 @@ export default function BotBuilder() {
     <Page navigation={navigation}>
       <Topbar title='Automações' inputSearch='off' />
 
-      <div className='flex h-[calc(100vh-68px)] bg-white dark:bg-zinc-950 transition-colors overflow-hidden relative'>
+      <div className='flex flex-1 min-h-0 bg-white dark:bg-zinc-950 transition-colors overflow-hidden relative'>
 
         {/* Sidebar: Draggable Components */}
         <div className='w-64 border-r border-zinc-100 dark:border-zinc-800 bg-white dark:bg-zinc-950 flex flex-col z-20 shrink-0'>

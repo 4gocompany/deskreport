@@ -13,5 +13,5 @@ export function Page({ navigation, children }: PageProps) {
     setNavigation(navigation || []);
   }, [navigation, setNavigation]);
 
-  return <div className='flex flex-col flex-1 h-screen max-h-screen overflow-hidden bg-zinc-50 dark:bg-zinc-950 transition-colors'>{children}</div>;
+  return <div className='flex flex-col flex-1 min-h-0 overflow-hidden bg-zinc-50 dark:bg-zinc-950 transition-colors'>{children}</div>;
 }
