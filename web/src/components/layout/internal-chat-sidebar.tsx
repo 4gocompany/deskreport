@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useOrganization, useSession, authClient } from '../../lib/auth-client';
 import { apiBase } from '../../api/fetcher';
 import { useUIStore } from '../../store';
-import { Search, Circle, MessagesSquare, ArrowLeft, Send, Users, AlertTriangle, Plus, History, Trash2, Copy, Check } from 'lucide-react';
+import { Search, Circle, MessagesSquare, ArrowLeft, Send, Users, AlertTriangle, Plus, History, Trash2, Copy, Check, Maximize2, Minimize2 } from 'lucide-react';
 import { AgentChatMessage, AgentChatSession, agentProfile, useAgentsStore } from '../../pages/tasks/use-agents';
 import { ChatMarkdown } from '../chat/chat-markdown';
 
@@ -76,6 +76,7 @@ export function InternalChatSidebar() {
   const [sessions, setSessions] = useState<AgentChatSession[]>([]);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [showSessions, setShowSessions] = useState(false);
+  const [isFull, setIsFull] = useState(false);
 
   const isExpanded = chatSidebarMode === 'expanded';
   const isCompact = chatSidebarMode === 'compact';
@@ -233,7 +234,7 @@ export function InternalChatSidebar() {
 
   return (
     <aside
-      className={`h-screen flex flex-col bg-zinc-900 border-l border-zinc-800 transition-all duration-300 ease-in-out z-40 ${isExpanded ? 'w-72' : (isCompact ? 'w-[74px]' : 'w-0 opacity-0 pointer-events-none')
+      className={`h-screen shrink-0 flex flex-col bg-zinc-900 border-l border-zinc-800 transition-all duration-300 ease-in-out ${isExpanded && isFull ? 'fixed inset-0 w-full z-50' : 'z-40'} ${isExpanded ? (isFull ? '' : 'w-72') : (isCompact ? 'w-[74px]' : 'w-0 opacity-0 pointer-events-none')
         }`}
     >
       <div className={`p-4 border-b border-zinc-800 flex items-center ${isExpanded ? 'justify-between' : 'justify-center py-6'}`}>
@@ -241,6 +242,15 @@ export function InternalChatSidebar() {
           <MessagesSquare size={isExpanded ? 18 : 22} className="text-zinc-400" />
           {isExpanded && <span className="font-semibold text-sm">Chat</span>}
         </div>
+        {isExpanded && (
+          <button
+            onClick={() => setIsFull(!isFull)}
+            className="text-zinc-500 hover:text-zinc-200"
+            title={isFull ? 'Reduzir chat' : 'Chat em tela cheia'}
+          >
+            {isFull ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+          </button>
+        )}
       </div>
 
       {alerts.length > 0 && (
