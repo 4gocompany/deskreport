@@ -6,7 +6,7 @@ export type TaskComment = {
   taskId: string;
   userId: string;
   content: string;
-  createdAt: string;
+  createdAt: string | Date;
   user: {
     name: string;
     image?: string;

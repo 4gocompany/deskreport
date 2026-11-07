@@ -39,10 +39,10 @@ interface TaskDetailDrawerProps {
 }
 
 function newestFirst(comments: TaskComment[]) {
-  return comments.slice().sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  return comments.slice().sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 }
 
-function formatTimestamp(iso?: string) {
+function formatTimestamp(iso?: string | Date) {
   if (!iso) return 'Agora';
   return new Date(iso).toLocaleString('pt-BR', {
     day: '2-digit',
