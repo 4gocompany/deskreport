@@ -18,6 +18,11 @@ export type AgentStatus = {
   taskId?: string;
   // Tokens gastos na execução atual (só o Claude Code informa)
   tokens?: number;
+  // Cota e contexto lidos do provedor na máquina. Sem leitura oficial ficam vazios
+  quotaUsed?: number;
+  quotaResetsAt?: string;
+  contextTokens?: number;
+  contextLimit?: number;
   updatedAt: string;
 };
 

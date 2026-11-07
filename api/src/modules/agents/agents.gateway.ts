@@ -98,7 +98,13 @@ export class AgentsGateway implements OnGatewayConnection {
     const task = await this.agentsService.finishTask(organizationId, data);
     if (task) this.server.to(uiRoom(organizationId)).emit('task:updated', task);
 
-    const status = this.agentsService.saveStatus(organizationId, { agent: data?.agent, state: 'idle' });
+    const status = this.agentsService.saveStatus(organizationId, {
+      agent: data?.agent,
+      state: 'idle',
+      tokens: data?.tokens,
+      contextTokens: data?.contextTokens,
+      contextLimit: data?.contextLimit,
+    });
     if (status) this.server.to(uiRoom(organizationId)).emit('agent:status', status);
   }
 

@@ -36,6 +36,11 @@ export type AgentStatus = {
   taskId?: string;
   // Tokens gastos na execução atual da tarefa (só o Claude Code informa)
   tokens?: number;
+  // Cota e contexto lidos do provedor na máquina. Sem leitura oficial ficam vazios
+  quotaUsed?: number;
+  quotaResetsAt?: string;
+  contextTokens?: number;
+  contextLimit?: number;
   updatedAt: string;
 };
 
@@ -58,6 +63,18 @@ function hashToken(token: string) {
 
 function text(value: unknown, max = 300) {
   return typeof value === 'string' ? value.slice(0, max) : undefined;
+}
+
+function positive(value: unknown) {
+  return Number.isInteger(value) && (value as number) > 0 ? (value as number) : undefined;
+}
+
+function percent(value: unknown) {
+  return typeof value === 'number' && value >= 0 && value <= 100 ? Math.round(value) : undefined;
+}
+
+function isoDate(value: unknown) {
+  return typeof value === 'string' && !isNaN(Date.parse(value)) ? new Date(value).toISOString() : undefined;
 }
 
 @Injectable()
@@ -193,6 +210,12 @@ export class AgentsService {
   saveStatus(organizationId: string, data: any) {
     if (!agentNames.includes(data?.agent)) return null;
 
+    // Telemetria sem leitura nova mantém a última, e a cota some quando a janela renova
+    const previous = this.statuses[organizationId]?.[data.agent];
+    const quotaResetsAt = isoDate(data.quotaResetsAt) || previous?.quotaResetsAt;
+    const quotaValid = quotaResetsAt && new Date(quotaResetsAt).getTime() > Date.now();
+    const quotaUsed = percent(data.quotaUsed) ?? previous?.quotaUsed;
+
     const status: AgentStatus = {
       agent: data.agent,
       state: data.state === 'working' || data.state === 'paused' ? data.state : 'idle',
@@ -203,7 +226,11 @@ export class AgentsService {
       tool: text(data.tool, 60),
       file: text(data.file),
       taskId: text(data.taskId, 60),
-      tokens: Number.isInteger(data.tokens) && data.tokens > 0 ? data.tokens : undefined,
+      tokens: positive(data.tokens) || previous?.tokens,
+      quotaUsed: quotaValid ? quotaUsed : undefined,
+      quotaResetsAt: quotaValid ? quotaResetsAt : undefined,
+      contextTokens: positive(data.contextTokens) || previous?.contextTokens,
+      contextLimit: positive(data.contextLimit) || previous?.contextLimit,
       updatedAt: new Date().toISOString(),
     };
 

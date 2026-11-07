@@ -588,13 +588,25 @@ function broadcast() {
   for (const client of widgetClients) client.write(message);
 }
 
-// O alerta de cota vai junto em toda telemetria para não sumir do painel enquanto o agente trabalha
+// O alerta, a cota e o contexto lidos do provedor vão junto em toda telemetria para não sumirem do painel
 function sendTelemetry(status) {
   const alert = alerts[status?.agent];
-  const data = { ...status, alert: alert?.message, quotaLevel: alert?.level };
+  const quota = quotas[status?.agent];
+  const task = running[status?.agent];
+  const data = {
+    ...status,
+    alert: alert?.message,
+    quotaLevel: alert?.level,
+    quotaUsed: quota ? Math.round(quota.used * 100) : undefined,
+    quotaResetsAt: quota?.resetsAt ? new Date(quota.resetsAt).toISOString() : undefined,
+    tokens: task?.tokens,
+    contextTokens: task?.contextTokens,
+    contextLimit: task?.contextLimit,
+  };
   if (agents[data.agent]) {
+    const repeated = data.action === agents[data.agent].action;
     agents[data.agent] = { state: data.state, project: data.project, action: data.action, alert: data.alert, quotaLevel: data.quotaLevel };
-    if (data.action) logs = [...logs.slice(-19), { agent: data.agent, action: String(data.action).slice(0, 180), at: new Date().toISOString() }];
+    if (data.action && !repeated) logs = [...logs.slice(-19), { agent: data.agent, action: String(data.action).slice(0, 180), at: new Date().toISOString() }];
     broadcast();
   }
   if (socket?.connected) socket.emit('machine:telemetry', data);
@@ -649,7 +661,7 @@ function cleanSummary(raw) {
 function finish(task, exitCode, summary, touchedFiles = [], stopped = false) {
   delete running[task.agent];
   saveState();
-  socket.emit('machine:task-finished', { taskId: task.taskId, agent: task.agent, mode: task.mode, exitCode, summary, touchedFiles, stopped, tokens: task.tokens });
+  socket.emit('machine:task-finished', { taskId: task.taskId, agent: task.agent, mode: task.mode, exitCode, summary, touchedFiles, stopped, tokens: task.tokens, contextTokens: task.contextTokens, contextLimit: task.contextLimit });
   notify(`${agentLabels[task.agent]} ${exitCode === 0 ? 'terminou' : 'parou'}: ${task.title}`);
   agents[task.agent] = { state: 'idle', action: exitCode === 0 ? 'Concluído' : `Parou com código ${exitCode}` };
   broadcast();
@@ -860,7 +872,7 @@ async function runTask(task) {
     sendOutput(text);
     const lines = text.split('\n').map((line) => line.trim()).filter(Boolean);
     for (const line of lines.slice(-3)) {
-      sendTelemetry({ agent: task.agent, state: 'working', project: path.basename(cwd), action: line.slice(0, 180), taskId: task.taskId, tokens: task.tokens });
+      sendTelemetry({ agent: task.agent, state: 'working', project: path.basename(cwd), action: line.slice(0, 180), taskId: task.taskId });
     }
   }
 
@@ -899,17 +911,21 @@ async function runTask(task) {
       }
       if (event.type === 'assistant') {
         countTokens(event.message?.id, event.message?.usage);
+        if (event.message?.usage) task.contextTokens = contextTokens(event.message.usage);
         const content = event.message?.content || [];
         const text = content.filter((part) => part.type === 'text').map((part) => part.text).join('\n');
         if (text) show(`${text}\n`);
         for (const tool of content.filter((part) => part.type === 'tool_use')) {
           const input = tool.input || {};
-          sendOutput(`> ${tool.name} ${input.command || input.file_path || input.pattern || ''}\n`);
+          const line = `> ${tool.name} ${input.command || input.file_path || input.pattern || ''}`;
+          sendOutput(`${line}\n`);
+          sendTelemetry({ agent: task.agent, state: 'working', project: path.basename(cwd), action: line.slice(0, 180), taskId: task.taskId });
         }
       }
       if (event.type === 'result') {
         // O resultado traz o total certo da execução
         if (event.usage) task.tokens = startTokens + newTokens(event.usage);
+        task.contextLimit = contextLimit(event.modelUsage) || task.contextLimit;
         if (event.result) output = String(event.result).slice(-4000);
       }
       if (event.type === 'rate_limit_event') readQuota(task.agent, event.rate_limit_info, stopForQuota);
@@ -956,7 +972,8 @@ function readQuota(agent, info, stopForQuota) {
   const approved = quotas[agent]?.resetsAt === resetsAt ? quotas[agent].approved : '';
   quotas[agent] = { used: top.utilization, resetsAt, approved };
   saveState();
-  broadcast();
+  const current = agents[agent] || {};
+  sendTelemetry({ agent, state: current.state || 'idle', project: current.project, action: current.action, taskId: running[agent]?.taskId });
 
   const name = agentLabels[agent];
   if (info.status === 'rejected' || (top.utilization >= QUOTA_BLOCK && approved !== 'block')) {
@@ -990,6 +1007,16 @@ function loadState() {
 
 function newTokens(usage) {
   return (usage.input_tokens || 0) + (usage.output_tokens || 0) + (usage.cache_creation_input_tokens || 0);
+}
+
+// Tamanho do contexto na última mensagem: tudo que entrou nela, inclusive o que veio do cache
+function contextTokens(usage) {
+  return (usage.input_tokens || 0) + (usage.cache_read_input_tokens || 0) + (usage.cache_creation_input_tokens || 0);
+}
+
+// Janela de contexto informada pelo Claude Code para o modelo usado
+function contextLimit(modelUsage) {
+  return Object.values(modelUsage || {}).reduce((max, model) => Math.max(max, model.contextWindow || 0), 0);
 }
 
 function limitAlert(agent) {

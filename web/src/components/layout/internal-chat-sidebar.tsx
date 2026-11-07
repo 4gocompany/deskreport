@@ -225,12 +225,13 @@ export function InternalChatSidebar() {
   const currentSession = sessions.find((s) => s.id === sessionId);
   const alerts = agents.filter((a) => a.alert);
 
-  const sessionContextTokens = messages.reduce((acc, m) => acc + Math.ceil((m.content?.length || 0) / 4), 0);
-  const contextLimit = 200_000;
-  const tokenBudget = 100_000;
-  const tokensUsed = agentStatus?.tokens || sessionContextTokens;
-  const quotaPercent = Math.min(100, Math.round((tokensUsed / tokenBudget) * 100));
-  const quotaRemaining = Math.max(0, tokenBudget - tokensUsed);
+  // Só mostra o que a CLI do provedor informou na máquina, sem estimativa
+  const quotaUsed = agentStatus?.quotaUsed;
+  const hasQuota = typeof quotaUsed === 'number';
+  const contextTokens = agentStatus?.contextTokens;
+  const contextLimit = agentStatus?.contextLimit;
+  const tokens = agentStatus?.tokens;
+  const quotaTitle = agentStatus?.quotaResetsAt ? `Renova em ${new Date(agentStatus.quotaResetsAt).toLocaleString('pt-BR')}` : undefined;
 
   return (
     // O chat fica preso à direita e cresce para a esquerda na tela cheia
@@ -342,15 +343,22 @@ export function InternalChatSidebar() {
               </span>
             )}
             <div className="flex flex-col overflow-hidden flex-1">
-              {openProfile && (
+              {openProfile && (hasQuota || !!contextTokens || !!tokens) && (
                 <div className="flex items-center gap-1.5 text-[9px] font-mono leading-tight mb-0.5 text-zinc-400">
-                  <span className={quotaPercent > 80 ? 'text-amber-400 font-semibold' : 'text-emerald-400 font-semibold'}>
-                    {quotaPercent}% usado
-                  </span>
-                  <span className="text-zinc-600">|</span>
-                  <span>{formatTokens(quotaRemaining)} restantes</span>
-                  <span className="text-zinc-600">|</span>
-                  <span className="text-zinc-400 truncate">Contexto: {formatTokens(sessionContextTokens)} / {formatTokens(contextLimit)}</span>
+                  {hasQuota && (
+                    <span title={quotaTitle} className={agentStatus?.quotaLevel ? 'text-amber-400 font-semibold' : 'text-emerald-400 font-semibold'}>
+                      {quotaUsed}% usado · {100 - quotaUsed}% livre
+                    </span>
+                  )}
+                  {hasQuota && !!(contextTokens || tokens) && <span className="text-zinc-600">|</span>}
+                  {contextTokens ? (
+                    <span className="text-zinc-400 truncate">
+                      Contexto: {formatTokens(contextTokens)}
+                      {contextLimit ? ` / ${formatTokens(contextLimit)}` : ''}
+                    </span>
+                  ) : (
+                    tokens && <span className="text-zinc-400 truncate">Tokens: {formatTokens(tokens)}</span>
+                  )}
                 </div>
               )}
               <span className="text-sm font-medium text-zinc-200 truncate">{openProfile?.name || openMember?.user.name}</span>
