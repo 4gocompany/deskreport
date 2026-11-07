@@ -25,6 +25,7 @@ interface TaskStore {
   dispatchTask: (id: string, agent: string) => Promise<string | null>;
   stopTask: (id: string) => Promise<string | null>;
   fetchTerminal: (id: string) => Promise<string>;
+  fetchTaskDiff: (id: string) => Promise<string>;
 }
 
 export const useTaskStore = create<TaskStore>((set, get) => ({
@@ -109,6 +110,13 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
       headers: { 'x-organization-id': getOrgId() },
     });
     return data?.text || '';
+  },
+  fetchTaskDiff: async (id) => {
+    const { data, error } = await authClient.$fetch<{ diff: string }>(`${API_URL}/${id}/diff`, {
+      headers: { 'x-organization-id': getOrgId() },
+    });
+    if (error) throw new Error(error.message);
+    return data?.diff || '';
   },
   addComment: async (taskId, content, agent) => {
     try {

@@ -2,6 +2,20 @@ import { PRIORITY_CONFIG, TaskCardProps } from '../tasks-data';
 import { useDraggable } from '@dnd-kit/react';
 import { MessageCircleQuestion } from 'lucide-react';
 import { agentProfile, findTaskAgent, useAgentsStore } from '../use-agents';
+import { TokenMeter } from './token-meter';
+
+const PIPELINE_STEPS = ['Analista', 'Dev', 'QA', 'Deploy'];
+
+// Com agente rodando, a etapa vem do papel dele; sem agente, vem do status da tarefa
+function pipelineStep(task: TaskCardProps, agentName?: string) {
+  if (agentName === 'antigravity') return 0;
+  if (agentName === 'opencode') return 2;
+  if (agentName) return 1;
+  if (task.status === 'done' || task.status === 'release') return 3;
+  if (task.status === 'review') return 2;
+  if (task.status === 'in-progress') return 1;
+  return -1;
+}
 
 interface TaskCardComponentProps {
   task: TaskCardProps;
@@ -13,6 +27,7 @@ export function TaskCard({ task, projectName, onClick }: TaskCardComponentProps)
   const priority = PRIORITY_CONFIG[task.priority];
   const { ref } = useDraggable({ id: task.id });
   const agent = useAgentsStore((state) => findTaskAgent(state.agents, task, projectName));
+  const activeStep = pipelineStep(task, agent?.agent);
 
   return (
     <div
@@ -62,6 +77,17 @@ export function TaskCard({ task, projectName, onClick }: TaskCardComponentProps)
         </div>
       )}
 
+      {activeStep >= 0 && (
+        <div className='flex items-center gap-1 mb-2' aria-label={`Etapa atual: ${PIPELINE_STEPS[activeStep]}`}>
+          {PIPELINE_STEPS.map((step, index) => (
+            <div key={step} className='flex items-center gap-1 min-w-0 flex-1'>
+              <span className={`h-1.5 rounded-full flex-1 ${index <= activeStep ? 'bg-blue-500' : 'bg-zinc-200 dark:bg-zinc-700'}`} />
+              <span className={`text-[9px] truncate ${index === activeStep ? 'text-blue-600 dark:text-blue-400 font-semibold' : 'text-zinc-400'}`}>{step}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
       <div className='flex items-center justify-between mt-3 pt-2.5 border-t border-zinc-100 dark:border-zinc-800/60'>
         <div className='flex items-center gap-2'>
           <span className='text-xs font-medium text-zinc-400 tabular-nums'>#{String(task.shortId || 0).padStart(3, '0')}</span>
@@ -90,6 +116,11 @@ export function TaskCard({ task, projectName, onClick }: TaskCardComponentProps)
           {new Date(task.createdAt).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}
         </span>
       </div>
+      {!!task.tokensUsed && (
+        <div className='mt-2'>
+          <TokenMeter used={task.tokensUsed} budget={task.tokenBudget || 50000} compact />
+        </div>
+      )}
     </div>
   );
 }

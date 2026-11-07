@@ -889,7 +889,7 @@ export function TaskDetailDrawer({
                       onClick={() => setIsTerminalOpen(true)}
                     >
                       <Terminal size={12} className='mr-1.5' />
-                      Ver Terminal ao Vivo
+                      Ver Logs e Git diff
                     </Button>
 
                     <TokenMeter used={tokensUsed} budget={displayTask.tokenBudget || 50000} />
