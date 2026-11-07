@@ -64,10 +64,21 @@ export function toEditorHtml(content: string) {
   return renderToStaticMarkup(<Markdown>{withLineBreaks(toMarkdown(content))}</Markdown>);
 }
 
+// Arquivo citado com caminho relativo abriria uma página do próprio DeskReport, então vira só código.
+// Link completo, como o do arquivo no remote, abre em outra aba sem ativar a edição da descrição
+function RemoteLink({ href, children }: { href?: string; children?: React.ReactNode }) {
+  if (!href || !/^(https?:|mailto:)/.test(href)) return <code>{children}</code>;
+  return (
+    <a href={href} target='_blank' rel='noreferrer' onClick={(event) => event.stopPropagation()}>
+      {children}
+    </a>
+  );
+}
+
 export function RichText({ content }: { content: string }) {
   return (
     <div className='prose prose-sm dark:prose-invert max-w-none break-words text-zinc-700 dark:text-zinc-300 leading-relaxed prose-p:my-2 prose-ul:my-2 prose-ol:my-2 prose-li:my-0.5 prose-headings:mt-4 prose-headings:mb-2 prose-code:before:content-none prose-code:after:content-none prose-code:bg-zinc-100 dark:prose-code:bg-zinc-800 prose-code:rounded prose-code:px-1 prose-code:py-0.5 prose-code:font-normal prose-pre:bg-zinc-950 prose-pre:text-zinc-200 prose-a:text-blue-500'>
-      <Markdown>{withLineBreaks(toMarkdown(content))}</Markdown>
+      <Markdown components={{ a: RemoteLink }}>{withLineBreaks(toMarkdown(content))}</Markdown>
     </div>
   );
 }

@@ -1171,7 +1171,7 @@ function plainText(html) {
 
 // Tarefa interrompida (cota ou client reiniciado) volta com o aviso e o último progresso
 function buildPrompt(task, cwd) {
-  const prompt = [taskPrompt(task, cwd), teamNote(task.agent), gitContext(cwd)].filter(Boolean).join('\n\n');
+  const prompt = [taskPrompt(task, cwd), teamNote(task.agent), gitContext(cwd), fileLinkNote(cwd)].filter(Boolean).join('\n\n');
   if (!task.resumed) return prompt;
   return [
     prompt,
@@ -1193,6 +1193,40 @@ function gitContext(cwd) {
   } catch {
     return '';
   }
+}
+
+// Arquivo citado na spec ou no comentário aponta para o remote, e não para um caminho relativo que abre no DeskReport
+function fileLinkNote(cwd) {
+  const base = remoteFilesUrl(cwd);
+  if (!base) {
+    return 'Ao citar um arquivo na spec ou no comentário, escreva o caminho como código, por exemplo `src/app.ts:12`, sem link.';
+  }
+  return [
+    `Ao citar um arquivo na spec ou no comentário, use sempre o link completo do remote: ${base}/<caminho>#L<linha>.`,
+    `Exemplo: [src/app.ts:12](${base}/src/app.ts#L12). Nunca use link com caminho relativo.`,
+  ].join('\n');
+}
+
+// Converte o origin (ssh ou https) na URL web dos arquivos da branch atual, já dentro da pasta do projeto
+function remoteFilesUrl(cwd) {
+  try {
+    const remote = gitOutput(cwd, ['remote', 'get-url', 'origin'])
+      .replace(/^git@([^:]+):/, 'https://$1/')
+      .replace(/^ssh:\/\/(git@)?/, 'https://')
+      .replace(/\/\/[^@/]+@/, '//')
+      .replace(/\/$/, '')
+      .replace(/\.git$/, '');
+    if (!remote.startsWith('https://')) return '';
+    const branch = gitOutput(cwd, ['rev-parse', '--abbrev-ref', 'HEAD']);
+    const folder = gitOutput(cwd, ['rev-parse', '--show-prefix']).replace(/\/$/, '');
+    return [remote, 'blob', branch, folder].filter(Boolean).join('/');
+  } catch {
+    return '';
+  }
+}
+
+function gitOutput(cwd, args) {
+  return execFileSync('git', args, { cwd, encoding: 'utf8', timeout: 10_000 }).trim();
 }
 
 // Esteira do time: cada etapa termina mencionando com @ o agente da próxima, conforme os cargos desta máquina
