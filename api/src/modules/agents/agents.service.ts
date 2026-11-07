@@ -73,6 +73,31 @@ function percent(value: unknown) {
   return typeof value === 'number' && value >= 0 && value <= 100 ? Math.round(value) : undefined;
 }
 
+// Apelido vira menção sem acento nem espaço: "João Silva" é @joaosilva
+export function mentionName(nickname: string) {
+  return nickname.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9_-]/g, '');
+}
+
+// Só agentes conhecidos, apelido curto, avatar em URL ou imagem embutida e cor em hexadecimal
+function cleanProfiles(profiles: any) {
+  const clean = {};
+  if (!profiles || typeof profiles !== 'object') return clean;
+
+  for (const agent of agentNames) {
+    const profile = profiles[agent];
+    if (!profile || typeof profile !== 'object') continue;
+    const nickname = text(profile.nickname, 30)?.trim();
+    const avatar = text(profile.avatar, 200_000)?.trim();
+    const color = text(profile.color, 7);
+    clean[agent] = {
+      nickname: nickname && mentionName(nickname) ? nickname : undefined,
+      avatar: avatar && /^(https:\/\/|data:image\/)/.test(avatar) ? avatar : undefined,
+      color: color && /^#[0-9a-f]{6}$/i.test(color) ? color : undefined,
+    };
+  }
+  return clean;
+}
+
 function isoDate(value: unknown) {
   return typeof value === 'string' && !isNaN(Date.parse(value)) ? new Date(value).toISOString() : undefined;
 }
@@ -192,6 +217,33 @@ export class AgentsService {
     await this.prisma.agentMachine.updateMany({ where: { organizationId, tokenHash: hashToken(token) }, data: { agentRoles } });
   }
 
+  // Guarda os perfis da máquina e devolve os perfis da organização já somados
+  async saveMachineProfiles(organizationId: string, token: unknown, profiles: unknown) {
+    if (typeof token !== 'string') return {};
+
+    const agentProfiles = cleanProfiles(profiles);
+    await this.prisma.agentMachine.updateMany({ where: { organizationId, tokenHash: hashToken(token) }, data: { agentProfiles } });
+    return this.agentProfiles(organizationId);
+  }
+
+  // Perfis de todas as máquinas da organização. A máquina mais nova vence quando duas configuram o mesmo agente
+  async agentProfiles(organizationId: string) {
+    const machines = await this.prisma.agentMachine.findMany({
+      where: { organizationId },
+      select: { agentProfiles: true },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    const profiles = {};
+    for (const machine of machines) {
+      const saved = machine.agentProfiles || {};
+      for (const agent of agentNames) {
+        if (saved[agent]?.nickname || saved[agent]?.avatar || saved[agent]?.color) profiles[agent] = saved[agent];
+      }
+    }
+    return profiles as Record<string, { nickname?: string; avatar?: string; color?: string }>;
+  }
+
   async isMember(organizationId: string, userId: string) {
     const member = await this.prisma.member.findFirst({ where: { organizationId, userId }, select: { id: true } });
     return !!member;
@@ -293,6 +345,10 @@ export class AgentsService {
       },
     });
     if (!task) throw new NotFoundException('Task not found');
+    // Orçamento esgotado para a esteira automática. Acionamento por uma pessoa continua liberado
+    if (data?.auto && task.tokensUsed >= task.tokenBudget) {
+      throw new BadRequestException('Orçamento de tokens da tarefa esgotado');
+    }
 
     const assignedAgent = task.assignees.find((user) => user.id.startsWith('agent-user-'))?.id.replace('agent-user-', '');
     const agent = data?.agent || assignedAgent;
@@ -320,8 +376,8 @@ export class AgentsService {
       taskId: task.id,
       title: task.title,
       description: task.description,
-      // Todos os comentários, de pessoas e de agentes, para o próximo agente continuar de onde o time parou
-      comments: task.comments.map((c) => `${c.user?.name || 'Membro'}: ${c.content}`),
+      // Só os comentários mais recentes. O histórico completo fica no deskreport_get_task
+      comments: task.comments.slice(-5).map((c) => `${c.user?.name || 'Membro'}: ${c.content}`),
       project: task.project,
       // O deskreport-client baixa cada anexo e passa o caminho local no prompt do agente
       attachments: task.attachments,

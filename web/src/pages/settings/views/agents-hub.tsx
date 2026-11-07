@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Apple, Check, Copy, Download, Monitor, Terminal } from 'lucide-react';
 import { agentProfile, useAgentsStore } from '../../tasks/use-agents';
+import { AgentAvatar } from '../../tasks/components/agent-avatar';
 
 const DOWNLOADS = [
   { label: 'Linux', detail: 'Qualquer distro, x64 ou arm64', href: '/downloads/deskreport-linux.tar.gz', icon: <Terminal size={18} /> },
@@ -10,6 +11,7 @@ const DOWNLOADS = [
 
 export function AgentsHub() {
   const agents = useAgentsStore((state) => state.agents);
+  useAgentsStore((state) => state.profiles);
   const [copied, setCopied] = useState('');
 
   const commands = [
@@ -78,11 +80,12 @@ export function AgentsHub() {
             const working = status?.state === 'working';
             return (
               <div key={member.agent} className="flex items-center gap-4 p-4">
-                <span className={`w-10 h-10 rounded-full ${member.color} text-white text-xs font-bold flex items-center justify-center shrink-0`}>
-                  {member.initials}
-                </span>
+                <AgentAvatar profile={member} className="w-10 h-10 rounded-full text-xs shrink-0" />
                 <div className="flex-1 overflow-hidden">
-                  <div className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">{member.name}</div>
+                  <div className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+                    {member.name}
+                    {member.nickname && <span className="ml-2 text-xs font-medium text-zinc-500">{member.label}</span>}
+                  </div>
                   <div className="text-xs text-zinc-500 truncate">
                     {member.role}
                     {working && status.action ? `: ${[status.project, status.action].filter(Boolean).join(', ')}` : ''}

@@ -5,7 +5,7 @@ import { fromNodeHeaders } from 'better-auth/node';
 import { Server, Socket } from 'socket.io';
 import { auth } from '../../auth/auth';
 import { allowedOrigins } from '../../origins';
-import { AgentsService, agentNames, checkProjectPath } from './agents.service';
+import { AgentsService, agentNames, checkProjectPath, mentionName } from './agents.service';
 
 // A autenticação é feita na conexão (chave da máquina ou sessão do navegador), por isso o guard global fica de fora
 @AllowAnonymous()
@@ -48,6 +48,7 @@ export class AgentsGateway implements OnGatewayConnection {
       client.join(userRoom(organizationId, session.user.id));
       client.emit('agent:status-list', await this.agentsService.statusList(organizationId));
       client.emit('agent:task-logs', this.agentsService.logsByOrg(organizationId));
+      client.emit('agent:profiles-updated', { profiles: await this.agentsService.agentProfiles(organizationId) });
     } catch {
       client.disconnect(true);
     }
@@ -76,6 +77,16 @@ export class AgentsGateway implements OnGatewayConnection {
     if (client.data?.kind !== 'machine') return;
 
     await this.agentsService.saveMachineRoles(client.data.organizationId, client.handshake.auth?.machineToken, data?.roles);
+  }
+
+  // Apelido e avatar são só apresentação: a chave do agente segue a mesma em rotas, despachos e telemetria
+  @SubscribeMessage('machine:profiles-updated')
+  async machineProfiles(@ConnectedSocket() client: Socket, @MessageBody() data: any) {
+    if (client.data?.kind !== 'machine') return;
+
+    const organizationId = client.data.organizationId;
+    const profiles = await this.agentsService.saveMachineProfiles(organizationId, client.handshake.auth?.machineToken, data?.profiles);
+    this.server.to(uiRoom(organizationId)).emit('agent:profiles-updated', { profiles });
   }
 
   @SubscribeMessage('machine:telemetry')
@@ -150,7 +161,7 @@ export class AgentsGateway implements OnGatewayConnection {
     this.server.to(uiRoom(organizationId)).emit('agent:team-message', message);
 
     if (message.targetAgent) {
-      const history = await this.agentsService.listTeamChat(organizationId, { taskId: message.taskId, limit: 20 });
+      const history = await this.agentsService.listTeamChat(organizationId, { taskId: message.taskId, limit: 8 });
       this.server.to(machineRoom(organizationId)).emit('agent:team-message', {
         from: message.agent,
         to: message.targetAgent,
@@ -187,7 +198,7 @@ export class AgentsGateway implements OnGatewayConnection {
       externalId: session.externalId,
       projectPath: session.projectPath,
       content: message.content,
-      history: history.slice(-21, -1).map((m) => ({ author: m.user.name, content: m.content })),
+      history: history.slice(-9, -1).map((m) => ({ author: m.user.name, content: m.content })),
     });
     return { ...message, session };
   }
@@ -227,13 +238,19 @@ export class AgentsGateway implements OnGatewayConnection {
     }
   }
 
-  // Agente que menciona outro (@claude, @opencode...) passa a próxima etapa para ele, com o comentário como pedido.
+  // Agente que menciona outro (@claude, @opencode ou o apelido, como @jarvis) passa a próxima etapa para ele, com o comentário como pedido.
   // Só agentes habilitados, e cada um uma vez por etapa de quem mencionou
   async dispatchMentions(organizationId: string, taskId: string, content: string, fromAgent: string, projectPath?: string) {
     const enabled = await this.agentsService.enabledAgents(organizationId);
+    const profiles = await this.agentsService.agentProfiles(organizationId);
     const key = `${taskId}:${fromAgent}`;
     const already = this.handoffs[key] || [];
-    const agents = enabled.filter((agent) => agent !== fromAgent && !already.includes(agent) && new RegExp(`@${agent}\\b`, 'i').test(content));
+    const agents = enabled.filter((agent) => {
+      if (agent === fromAgent || already.includes(agent)) return false;
+      const nickname = profiles[agent]?.nickname ? mentionName(profiles[agent].nickname) : '';
+      const names = nickname ? `${agent}|${nickname}` : agent;
+      return new RegExp(`@(${names})\\b`, 'i').test(content);
+    });
 
     const dispatched = [];
     for (const agent of agents) {

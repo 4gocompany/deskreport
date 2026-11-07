@@ -23,7 +23,7 @@ import { RichText, toEditorHtml } from '../../components/ui/rich-text';
 import { Button, Dialog } from '../../components/ui';
 import { useTenantStore } from '../../store';
 import { useTaskStore } from './use-task-store';
-import { AGENT_LABELS, agentProfile, useAgentsStore } from './use-agents';
+import { agentProfile, useAgentsStore, withAgentProfile } from './use-agents';
 import { useParams } from 'react-router-dom';
 import { useSession } from '../../lib/auth-client';
 import { TaskTerminalDialog } from './components/task-terminal-dialog';
@@ -80,6 +80,8 @@ export function TaskDetailDrawer({
   const { company_id } = useParams();
 
   const enabledAgents = useAgentsStore((state) => state.agents);
+  // Apelidos e avatares chegam pelo socket e redesenham comentários e responsáveis
+  useAgentsStore((state) => state.profiles);
   const [isDispatching, setIsDispatching] = useState(false);
   const [dispatchError, setDispatchError] = useState('');
   const [isStopping, setIsStopping] = useState(false);
@@ -502,7 +504,7 @@ export function TaskDetailDrawer({
 
                 {/* Lista de Comentários */}
                 <div className='space-y-3'>
-                  {newestFirst(displayTask.comments || []).map((c) => (
+                  {newestFirst(displayTask.comments || []).map((c) => ({ ...c, user: c.user && withAgentProfile(c.user) })).map((c) => (
                     <div
                       key={c.id}
                       className='flex gap-3 p-3 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/60'
@@ -648,9 +650,9 @@ export function TaskDetailDrawer({
                                 className='flex items-center gap-2 p-2 hover:bg-zinc-50 dark:hover:bg-zinc-800 cursor-pointer rounded-lg transition-colors'
                                 onClick={() => handleAddAssignee(m.user.id)}
                               >
-                                <img src={m.user.image} className='w-5 h-5 rounded-full' />
+                                <img src={withAgentProfile(m.user).image} className='w-5 h-5 rounded-full' />
                                 <span className='text-xs font-medium text-zinc-700 dark:text-zinc-200 truncate'>
-                                  {m.user.name}
+                                  {withAgentProfile(m.user).name}
                                 </span>
                               </div>
                             ))}
@@ -668,10 +670,11 @@ export function TaskDetailDrawer({
                 <div className='space-y-1.5'>
                   {(displayTask.assigneeIds || []).map((userId, i) => {
                     const member = members.find((m) => m.user.id === userId);
+                    const memberUser = member?.user && withAgentProfile(member.user);
                     const name =
-                      member?.user?.name || displayTask.assignees?.[i]?.name || 'Usuário';
+                      memberUser?.name || displayTask.assignees?.[i]?.name || 'Usuário';
                     const avatar =
-                      member?.user?.image || displayTask.assignees?.[i]?.avatar || '';
+                      memberUser?.image || displayTask.assignees?.[i]?.avatar || '';
 
                     return (
                       <div
@@ -825,7 +828,7 @@ export function TaskDetailDrawer({
                       <div className='flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-blue-50 dark:bg-blue-500/10 text-xs text-blue-700 dark:text-blue-300'>
                         <span className='w-2 h-2 rounded-full bg-blue-500 animate-pulse shrink-0' />
                         <span className='font-semibold shrink-0'>
-                          {AGENT_LABELS[taskAgent.agent] || taskAgent.agent}
+                          {agentProfile(taskAgent.agent).name}
                         </span>
                         <span className='truncate'>{taskAgent.action}</span>
                       </div>

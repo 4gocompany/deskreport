@@ -3,7 +3,8 @@ import { useOrganization, useSession, authClient } from '../../lib/auth-client';
 import { apiBase } from '../../api/fetcher';
 import { useUIStore } from '../../store';
 import { Search, Circle, MessagesSquare, ArrowLeft, Send, Users, AlertTriangle, Plus, History, Trash2, Copy, Check, Maximize2, Minimize2 } from 'lucide-react';
-import { AgentChatMessage, AgentChatSession, agentProfile, useAgentsStore } from '../../pages/tasks/use-agents';
+import { AgentChatMessage, AgentChatSession, agentProfile, useAgentsStore, withAgentProfile } from '../../pages/tasks/use-agents';
+import { AgentAvatar } from '../../pages/tasks/components/agent-avatar';
 import { ChatMarkdown } from '../chat/chat-markdown';
 
 type OrgMember = { id: string; userId: string; role: string; user: { name: string; image?: string | null } };
@@ -60,6 +61,8 @@ export function InternalChatSidebar() {
   const { data: organization } = useOrganization();
   const { data: session } = useSession();
   const agents = useAgentsStore((state) => state.agents);
+  // Apelidos e avatares chegam pelo socket e redesenham os perfis
+  useAgentsStore((state) => state.profiles);
   const taskLogs = useAgentsStore((state) => state.taskLogs);
   const chatMessages = useAgentsStore((state) => state.chatMessages);
   const setChatHistory = useAgentsStore((state) => state.setChatHistory);
@@ -131,7 +134,7 @@ export function InternalChatSidebar() {
   const members = ((organization?.members || []) as OrgMember[])
     .filter((m) => !m.userId.startsWith('agent-user-'))
     .filter((m) => m.user.name.toLowerCase().includes(query));
-  const team = agents.map((a) => agentProfile(a.agent)).filter((a) => a.name.toLowerCase().includes(query));
+  const team = agents.map((a) => agentProfile(a.agent)).filter((a) => `${a.name} ${a.label}`.toLowerCase().includes(query));
 
   function statusOf(agent: string) {
     return agents.find((a) => a.agent === agent);
@@ -310,9 +313,7 @@ export function InternalChatSidebar() {
                 <div key={msg.id} className="rounded-xl p-2.5 space-y-1 bg-zinc-800/80 border border-zinc-700/60 text-zinc-200">
                   <div className="flex items-center justify-between gap-2 text-[10px] text-zinc-400">
                     <span className="flex items-center gap-1.5 min-w-0">
-                      <span className={`w-4 h-4 rounded-full ${from.color} text-white text-[8px] font-bold flex items-center justify-center shrink-0`}>
-                        {from.initials}
-                      </span>
+                      <AgentAvatar profile={from} className="w-4 h-4 rounded-full text-[8px] shrink-0" />
                       <span className="font-semibold text-zinc-300 truncate">
                         {from.name} para {msg.targetAgent ? agentProfile(msg.targetAgent).name : 'o time'}
                       </span>
@@ -332,9 +333,7 @@ export function InternalChatSidebar() {
               <ArrowLeft size={16} />
             </button>
             {openProfile ? (
-              <span className={`w-8 h-8 rounded-full ${openProfile.color} text-white text-[10px] font-bold flex items-center justify-center shrink-0`}>
-                {openProfile.initials}
-              </span>
+              <AgentAvatar profile={openProfile} className="w-8 h-8 rounded-full text-[10px] shrink-0" />
             ) : openMember?.user.image ? (
               <img src={openMember.user.image} alt={openMember.user.name} className="w-8 h-8 rounded-full object-cover shrink-0" />
             ) : (
@@ -361,7 +360,12 @@ export function InternalChatSidebar() {
                   )}
                 </div>
               )}
-              <span className="text-sm font-medium text-zinc-200 truncate">{openProfile?.name || openMember?.user.name}</span>
+              <span className="flex items-center gap-1.5 min-w-0">
+                <span className="text-sm font-medium text-zinc-200 truncate">{openProfile?.name || openMember?.user.name}</span>
+                {openProfile?.nickname && (
+                  <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-zinc-800 text-zinc-400 shrink-0">{openProfile.label}</span>
+                )}
+              </span>
               <span className="text-[10px] text-zinc-500 truncate">
                 {openProfile ? currentSession?.title || 'Nova conversa' : openMember?.role}
               </span>
@@ -451,7 +455,7 @@ export function InternalChatSidebar() {
                 const fromAgent = msg.userId.startsWith('agent-user-');
                 const prevMsg = idx > 0 ? messages[idx - 1] : null;
                 const showDateDivider = !prevMsg || new Date(msg.createdAt).toDateString() !== new Date(prevMsg.createdAt).toDateString();
-                const authorName = msg.user?.name || (fromAgent ? openProfile.name : 'Você');
+                const authorName = (msg.user && withAgentProfile(msg.user).name) || (fromAgent ? openProfile.name : 'Você');
 
                 return (
                   <div key={msg.id} className="space-y-1">
@@ -468,9 +472,7 @@ export function InternalChatSidebar() {
 
                     <div className="group relative flex items-start gap-2.5 p-2 rounded-lg hover:bg-white/[0.04] transition-colors">
                       {fromAgent ? (
-                        <span className={`w-7 h-7 rounded-lg ${openProfile.color} text-white text-[10px] font-bold flex items-center justify-center shrink-0 mt-0.5`}>
-                          {openProfile.initials}
-                        </span>
+                        <AgentAvatar profile={openProfile} className="w-7 h-7 rounded-lg text-[10px] shrink-0 mt-0.5" />
                       ) : (
                         <span className="w-7 h-7 rounded-lg bg-blue-600 text-white text-[10px] font-bold flex items-center justify-center shrink-0 mt-0.5">
                           {session?.user?.name ? initials(session.user.name) : 'EU'}
@@ -586,15 +588,16 @@ export function InternalChatSidebar() {
                   className={itemClass}
                 >
                   <div className="relative shrink-0">
-                    <span className={`${avatarSize} rounded-full ${agent.color} text-white text-xs font-bold flex items-center justify-center`}>
-                      {agent.initials}
-                    </span>
+                    <AgentAvatar profile={agent} className={`${avatarSize} rounded-full text-xs`} />
                     <div className={`absolute bottom-0 right-0 ${dotSize} ${paused ? 'bg-amber-500' : working ? 'bg-blue-500 animate-pulse' : 'bg-emerald-500'} border-2 border-zinc-900 rounded-full`}></div>
                   </div>
 
                   {isExpanded && (
                     <div className="flex flex-col overflow-hidden animate-in slide-in-from-left-2 duration-300">
-                      <span className="text-sm font-medium text-zinc-200 truncate">{agent.name}</span>
+                      <span className="text-sm font-medium text-zinc-200 truncate">
+                        {agent.name}
+                        {agent.nickname && <span className="ml-1.5 text-[9px] font-semibold text-zinc-500">{agent.label}</span>}
+                      </span>
                       <span className={`text-[10px] truncate ${paused ? 'text-amber-400' : working ? 'text-blue-400' : 'text-zinc-500'}`}>
                         {agent.role} · {paused ? 'Pausado' : working ? 'Trabalhando' : 'Disponível'}
                       </span>

@@ -35,7 +35,22 @@ export const AGENT_LABELS: Record<string, string> = {
   aider: 'Aider',
 };
 
-export type AgentProfile = { agent: string; name: string; role: string; initials: string; color: string };
+export type AgentProfile = {
+  agent: string;
+  name: string;
+  // Nome canônico do agente, segue visível quando há apelido
+  label?: string;
+  nickname?: string;
+  role: string;
+  initials: string;
+  color: string;
+  avatar?: string;
+  // Cor escolhida no deskreport-client, em hexadecimal
+  background?: string;
+};
+
+// Apelido, avatar e cor configurados nas máquinas da organização. A chave continua sendo o agente
+export type AgentCustomProfile = { nickname?: string; avatar?: string; color?: string };
 
 // Todos os agentes suportados, na mesma ordem e cores do backend
 export const AGENT_TEAM: AgentProfile[] = [
@@ -47,11 +62,40 @@ export const AGENT_TEAM: AgentProfile[] = [
   { agent: 'aider', name: 'Aider', role: 'Dev', initials: 'AD', color: 'bg-yellow-600' },
 ];
 
-// Perfil de um agente habilitado, com um padrão para agentes ainda sem perfil no painel
+// Perfil de um agente habilitado, com um padrão para agentes ainda sem perfil no painel.
+// Com apelido o nome vira o apelido e o agente original fica em label
 export function agentProfile(agent: string): AgentProfile {
-  const profile = AGENT_TEAM.find((a) => a.agent === agent);
-  if (profile) return profile;
-  return { agent, name: agent, role: 'Agente', initials: agent.slice(0, 2).toUpperCase(), color: 'bg-zinc-600' };
+  const base = AGENT_TEAM.find((a) => a.agent === agent) || {
+    agent,
+    name: agent,
+    role: 'Agente',
+    initials: agent.slice(0, 2).toUpperCase(),
+    color: 'bg-zinc-600',
+  };
+  const custom = useAgentsStore.getState().profiles[agent];
+  if (!custom) return { ...base, label: base.name };
+
+  return {
+    ...base,
+    label: base.name,
+    name: custom.nickname || base.name,
+    nickname: custom.nickname,
+    initials: custom.nickname ? custom.nickname.slice(0, 2).toUpperCase() : base.initials,
+    avatar: custom.avatar,
+    background: custom.color,
+  };
+}
+
+// Usuário do agente salvo no banco (comentários, responsáveis) com o apelido e avatar da organização
+export function withAgentProfile<T extends { id?: string; name?: string; image?: string | null }>(user: T): T {
+  if (!user?.id?.startsWith('agent-user-')) return user;
+  const profile = agentProfile(user.id.replace('agent-user-', ''));
+  if (!profile.nickname && !profile.avatar) return user;
+  return {
+    ...user,
+    name: profile.nickname ? `${profile.nickname} (${profile.label})` : user.name,
+    image: profile.avatar || user.image,
+  };
 }
 
 export type AgentChatMessage = {
@@ -85,6 +129,8 @@ type AgentsStore = {
   setTaskOutput: (taskId: string, text: string) => void;
   appendTaskOutput: (output: { taskId: string; text: string }) => void;
   chatMessages: Record<string, AgentChatMessage[]>;
+  profiles: Record<string, AgentCustomProfile>;
+  setProfiles: (profiles: Record<string, AgentCustomProfile>) => void;
   teamMessages: AgentChatMessage[];
   setTeamMessages: (messages: AgentChatMessage[]) => void;
   addTeamMessage: (message: AgentChatMessage) => void;
@@ -107,6 +153,8 @@ export const useAgentsStore = create<AgentsStore>((set) => ({
       taskOutputs: { ...state.taskOutputs, [taskId]: ((state.taskOutputs[taskId] || '') + text).slice(-50000) },
     })),
   chatMessages: {},
+  profiles: {},
+  setProfiles: (profiles) => set({ profiles: profiles || {} }),
   teamMessages: [],
   setTeamMessages: (teamMessages) => set({ teamMessages }),
   addTeamMessage: (message) =>
@@ -162,6 +210,9 @@ export function useAgentsSocket(organizationId: string) {
     socket.on('agent:status-list', setAgents);
     socket.on('agent:task-logs', setTaskLogs);
     socket.on('agent:task-output', appendTaskOutput);
+    socket.on('agent:profiles-updated', (data: { profiles: Record<string, AgentCustomProfile> }) =>
+      useAgentsStore.getState().setProfiles(data.profiles),
+    );
     socket.on('agent:status', (status: AgentStatus) => {
       const before = useAgentsStore.getState().agents.find((a) => a.agent === status.agent);
       if (status.alert && status.alert !== before?.alert) notifyBrowser(status.alert);

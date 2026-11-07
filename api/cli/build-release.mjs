@@ -21,7 +21,16 @@ const packageJson = {
 
 // O app aberto pelo menu (Linux) ou pelo Finder (macOS) não herda o PATH do terminal, então procura o node
 const unixLauncher = `#!/bin/sh
-DIR="$(cd "$(dirname "$0")" && pwd)"
+TARGET="$0"
+while [ -L "$TARGET" ]; do
+  DIR="$(cd "$(dirname "$TARGET")" && pwd)"
+  TARGET="$(readlink "$TARGET")"
+  case "$TARGET" in
+    /*) ;;
+    *) TARGET="$DIR/$TARGET" ;;
+  esac
+done
+DIR="$(cd "$(dirname "$TARGET")" && pwd)"
 NODE="node"
 if ! command -v node >/dev/null 2>&1; then
   for d in /opt/homebrew/bin /usr/local/bin "$HOME"/.nvm/versions/node/*/bin "$HOME"/.local/share/nvm/*/bin "$HOME"/.fnm/current/bin "$HOME"/.volta/bin; do

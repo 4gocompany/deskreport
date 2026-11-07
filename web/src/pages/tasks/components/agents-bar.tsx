@@ -1,4 +1,4 @@
-import { AGENT_LABELS, useAgentsStore } from '../use-agents';
+import { agentProfile, useAgentsStore } from '../use-agents';
 
 export function AgentsBar() {
   const agents = useAgentsStore((state) => state.agents);
@@ -17,7 +17,7 @@ export function AgentsBar() {
             }`}
           >
             <span className={`w-1.5 h-1.5 rounded-full ${working ? 'bg-blue-500 animate-pulse' : 'bg-zinc-400'}`} />
-            <span className='font-bold'>{AGENT_LABELS[agent.agent] || agent.agent}</span>
+            <span className='font-bold'>{agentProfile(agent.agent).name}</span>
             {working ? (
               <span className='max-w-80 truncate'>
                 {[agent.project, agent.action].filter(Boolean).join(' · ')}

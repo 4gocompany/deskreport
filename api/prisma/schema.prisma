@@ -273,6 +273,8 @@ model AgentMachine {
   workspaceRoot  String    @map("workspace_root")
   // Cargos de cada agente nesta máquina, ex.: { "claude": ["engineering", "devops"] }
   agentRoles     Json?     @map("agent_roles")
+  // Apelido, avatar e cor de cada agente nesta máquina. O agente continua sendo a chave canônica
+  agentProfiles  Json?     @map("agent_profiles")
   lastSeenAt     DateTime? @map("last_seen_at")
   createdAt      DateTime  @default(now()) @map("created_at")
 

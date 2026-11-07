@@ -3,7 +3,7 @@ import { AllowAnonymous } from '@thallesp/nestjs-better-auth';
 import { ActiveOrg } from '../../auth/active-org.decorator';
 import { ActiveUser } from '../../auth/active-user.decorator';
 import { AgentsGateway } from './agents.gateway';
-import { AgentsService, compactTask } from './agents.service';
+import { AgentsService, checkProjectPath, compactTask } from './agents.service';
 
 @Controller()
 export class AgentsController {
@@ -142,6 +142,7 @@ export class AgentsController {
   @Post('agents/mcp/tasks/:ref/comments')
   async mcpComment(@Headers('authorization') authorization: string, @Param('ref') ref: string, @Body() data: any) {
     const orgId = await this.machineOrg(authorization);
+    checkProjectPath(data?.projectPath);
     const task = await this.agentsService.commentTask(orgId, ref, data);
     this.agentsGateway.emitTask(orgId, 'task:updated', task);
     await this.agentsGateway.dispatchMentions(orgId, task.id, data.content, data.agent, data.projectPath);

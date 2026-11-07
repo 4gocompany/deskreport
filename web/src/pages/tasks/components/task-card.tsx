@@ -1,6 +1,6 @@
 import { PRIORITY_CONFIG, TaskCardProps } from '../tasks-data';
 import { useDraggable } from '@dnd-kit/react';
-import { AGENT_LABELS, findTaskAgent, useAgentsStore } from '../use-agents';
+import { agentProfile, findTaskAgent, useAgentsStore } from '../use-agents';
 
 interface TaskCardComponentProps {
   task: TaskCardProps;
@@ -56,7 +56,7 @@ export function TaskCard({ task, projectName, onClick }: TaskCardComponentProps)
       {agent && (
         <div className='flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-blue-50 dark:bg-blue-500/10 text-xs text-blue-700 dark:text-blue-300 mb-2'>
           <span className='w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse shrink-0' />
-          <span className='font-semibold shrink-0'>{AGENT_LABELS[agent.agent] || agent.agent}</span>
+          <span className='font-semibold shrink-0'>{agentProfile(agent.agent).name}</span>
           <span className='truncate'>{agent.file || agent.action}</span>
         </div>
       )}
