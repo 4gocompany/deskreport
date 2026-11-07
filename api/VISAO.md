@@ -33,7 +33,7 @@ DeskReport transforma cards em entregas revisadas usando os agentes de código q
 
 ## 6. Princípios
 
-- **Open source**: CLI, API e painel públicos, com licença permissiva (MIT).
+- **Open source**: CLI, API e painel públicos sob licença Apache 2.0, publicados na organização oficial no GitHub (preferência por `4gocompany`).
 - **Segurança é reputação**: isolamento multi-tenant absoluto, nenhum segredo em log, resposta ou commit.
 - **Instalação em 1 minuto**: instalar, conectar e ver o primeiro card rodando.
 - **Código simples e humano**: o repositório é portfólio público de como a 4Go trabalha.
