@@ -6,8 +6,10 @@ export type TaskComment = {
   taskId: string;
   userId: string;
   content: string;
+  metadata?: { agent?: string; harness?: string; model?: string } | null;
   createdAt: string | Date;
   user: {
+    id?: string;
     name: string;
     image?: string;
   }
@@ -28,6 +30,7 @@ export type TaskCardProps = {
   project: string;
   status: TaskStatus;
   priority: TaskPriority;
+  complexity?: 'low' | 'medium' | 'high';
   createdAt: string;
   updatedAt?: string;
   assigneeIds?: string[] | null;

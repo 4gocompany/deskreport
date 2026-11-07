@@ -61,6 +61,7 @@ model TaskComment {
   taskId    String   @map("task_id")
   userId    String   @map("user_id")
   content   String
+  metadata  Json?
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 

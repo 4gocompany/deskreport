@@ -2,20 +2,8 @@ import { PRIORITY_CONFIG, TaskCardProps } from '../tasks-data';
 import { useDraggable } from '@dnd-kit/react';
 import { MessageCircleQuestion } from 'lucide-react';
 import { agentProfile, findTaskAgent, useAgentsStore } from '../use-agents';
+import { activeStep, taskSteps } from '../task-pipeline';
 import { TokenMeter } from './token-meter';
-
-const PIPELINE_STEPS = ['Analista', 'Dev', 'QA', 'Deploy'];
-
-// Com agente rodando, a etapa vem do papel dele; sem agente, vem do status da tarefa
-function pipelineStep(task: TaskCardProps, agentName?: string) {
-  if (agentName === 'antigravity') return 0;
-  if (agentName === 'opencode') return 2;
-  if (agentName) return 1;
-  if (task.status === 'done' || task.status === 'release') return 3;
-  if (task.status === 'review') return 2;
-  if (task.status === 'in-progress') return 1;
-  return -1;
-}
 
 interface TaskCardComponentProps {
   task: TaskCardProps;
@@ -27,7 +15,8 @@ export function TaskCard({ task, projectName, onClick }: TaskCardComponentProps)
   const priority = PRIORITY_CONFIG[task.priority];
   const { ref } = useDraggable({ id: task.id });
   const agent = useAgentsStore((state) => findTaskAgent(state.agents, task, projectName));
-  const activeStep = pipelineStep(task, agent?.agent);
+  const steps = taskSteps(task);
+  const currentStep = activeStep(task, agent);
 
   return (
     <div
@@ -74,17 +63,40 @@ export function TaskCard({ task, projectName, onClick }: TaskCardComponentProps)
           <span className='w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse shrink-0' />
           <span className='font-semibold shrink-0'>{agentProfile(agent.agent).name}</span>
           <span className='truncate'>{agent.file || agent.action}</span>
+          {agent.model && (
+            <span className='ml-auto shrink-0 rounded bg-zinc-200/80 dark:bg-zinc-700/80 px-1.5 py-0.5 text-[10px] font-medium text-zinc-600 dark:text-zinc-300'>
+              {agent.model}
+            </span>
+          )}
         </div>
       )}
 
-      {activeStep >= 0 && (
-        <div className='flex items-center gap-1 mb-2' aria-label={`Etapa atual: ${PIPELINE_STEPS[activeStep]}`}>
-          {PIPELINE_STEPS.map((step, index) => (
-            <div key={step} className='flex items-center gap-1 min-w-0 flex-1'>
-              <span className={`h-1.5 rounded-full flex-1 ${index <= activeStep ? 'bg-blue-500' : 'bg-zinc-200 dark:bg-zinc-700'}`} />
-              <span className={`text-[9px] truncate ${index === activeStep ? 'text-blue-600 dark:text-blue-400 font-semibold' : 'text-zinc-400'}`}>{step}</span>
-            </div>
-          ))}
+      {currentStep >= 0 && (
+        <div className='mb-2 space-y-1' aria-label={`Etapa atual: ${steps[currentStep]}`}>
+          {steps.map((step, index) => {
+            const done = index < currentStep;
+            const active = index === currentStep;
+            return (
+              <div key={step} className='flex items-center gap-2'>
+                <span
+                  className={`h-1.5 w-1.5 shrink-0 rounded-full ${
+                    active ? 'bg-blue-500' : done ? 'bg-blue-400' : 'bg-zinc-300 dark:bg-zinc-700'
+                  }`}
+                />
+                <span
+                  className={`text-[11px] leading-none ${
+                    active
+                      ? 'font-semibold text-blue-600 dark:text-blue-400'
+                      : done
+                        ? 'text-zinc-600 dark:text-zinc-400'
+                        : 'text-zinc-400 dark:text-zinc-500'
+                  }`}
+                >
+                  {step}
+                </span>
+              </div>
+            );
+          })}
         </div>
       )}
 

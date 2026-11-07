@@ -27,6 +27,7 @@ import { useTaskStore } from './use-task-store';
 import { agentProfile, useAgentsStore, withAgentProfile } from './use-agents';
 import { useParams } from 'react-router-dom';
 import { useSession } from '../../lib/auth-client';
+import { activeStep, taskSteps } from './task-pipeline';
 import { TaskTerminalDialog } from './components/task-terminal-dialog';
 import { TokenMeter } from './components/token-meter';
 import { TaskAttachments } from './components/task-attachments';
@@ -51,6 +52,23 @@ function formatTimestamp(iso?: string | Date) {
     hour: '2-digit',
     minute: '2-digit',
   });
+}
+
+function modelTagClass(model?: string) {
+  const value = (model || '').toLowerCase();
+  if (/claude|anthropic|sonnet|opus|haiku/.test(value)) return 'bg-orange-100 text-orange-700 dark:bg-orange-500/15 dark:text-orange-300';
+  if (/gpt|openai|o1|o3|o4/.test(value)) return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300';
+  if (/gemini|google/.test(value)) return 'bg-blue-100 text-blue-700 dark:bg-blue-500/15 dark:text-blue-300';
+  return 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300';
+}
+
+function commentTrace(comment: TaskComment) {
+  const agent = comment.metadata?.agent || (comment.user?.id?.startsWith('agent-user-') ? comment.user.id.replace('agent-user-', '') : '');
+  if (!agent) return null;
+  const profile = agentProfile(agent);
+  const harness = profile.label || profile.name;
+  const name = profile.nickname ? `${profile.nickname} - ${harness}` : harness;
+  return { name, model: comment.metadata?.model || '' };
 }
 
 export function TaskDetailDrawer({
@@ -90,6 +108,8 @@ export function TaskDetailDrawer({
   const taskAgent = useAgentsStore((state) =>
     state.agents.find((a) => a.state === 'working' && a.taskId === task?.id),
   );
+  const steps = taskSteps(displayTask || task || { status: 'todo' });
+  const currentStep = activeStep(displayTask || task || { status: 'todo' }, taskAgent);
 
   useEffect(() => {
     if (isOpen && company_id) {
@@ -548,24 +568,35 @@ export function TaskDetailDrawer({
 
                 {/* Lista de Comentários */}
                 <div className='space-y-3'>
-                  {newestFirst(displayTask.comments || []).map((c) => ({ ...c, user: c.user && withAgentProfile(c.user) })).map((c) => (
+                  {newestFirst(displayTask.comments || []).map((c) => {
+                    const renderedUser = c.user && withAgentProfile(c.user);
+                    const trace = commentTrace(c);
+                    return { ...c, user: renderedUser, trace };
+                  }).map((c) => (
                     <div
                       key={c.id}
                       className='flex gap-3 p-3 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/60'
                     >
                       <div className='w-7 h-7 rounded-full bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center border border-zinc-200 dark:border-zinc-700 overflow-hidden shrink-0'>
                         {c.user?.image ? (
-                          <img src={c.user.image} alt={c.user.name} className='w-full h-full object-cover' />
+                          <img src={c.user.image} alt={c.trace?.name || c.user.name} className='w-full h-full object-cover' />
                         ) : (
                           <User size={13} className='text-zinc-500' />
                         )}
                       </div>
                       <div className='flex-1 min-w-0 space-y-1'>
                         <div className='flex items-center justify-between gap-2'>
-                          <span className='text-xs font-semibold text-zinc-900 dark:text-zinc-100'>
-                            {c.user?.name || user?.name || 'Usuário'}
-                          </span>
-                          <span className='text-xs text-zinc-400'>
+                          <div className='flex min-w-0 items-center gap-2'>
+                            <span className='truncate text-xs font-semibold text-zinc-900 dark:text-zinc-100'>
+                              {c.trace?.name || c.user?.name || user?.name || 'Usuário'}
+                            </span>
+                            {c.trace?.model && (
+                              <span className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium ${modelTagClass(c.trace.model)}`}>
+                                {c.trace.model}
+                              </span>
+                            )}
+                          </div>
+                          <span className='shrink-0 text-xs text-zinc-400'>
                             {formatTimestamp(c.createdAt)}
                           </span>
                         </div>
@@ -665,6 +696,38 @@ export function TaskDetailDrawer({
                       </option>
                     ))}
                   </select>
+                </div>
+              </div>
+
+              <div className='h-px bg-zinc-200 dark:bg-zinc-800' />
+
+              <div className='space-y-2.5'>
+                <span className='text-xs font-semibold text-zinc-500 dark:text-zinc-400'>Etapas</span>
+                <div className='space-y-1.5'>
+                  {steps.map((step, index) => {
+                    const done = index < currentStep;
+                    const active = index === currentStep;
+                    return (
+                      <div key={step} className='flex items-center gap-2.5'>
+                        <span
+                          className={`h-2 w-2 shrink-0 rounded-full ${
+                            active ? 'bg-blue-500' : done ? 'bg-blue-400' : 'bg-zinc-300 dark:bg-zinc-700'
+                          }`}
+                        />
+                        <span
+                          className={`text-xs ${
+                            active
+                              ? 'font-semibold text-blue-600 dark:text-blue-400'
+                              : done
+                                ? 'text-zinc-700 dark:text-zinc-300'
+                                : 'text-zinc-400 dark:text-zinc-500'
+                          }`}
+                        >
+                          {step}
+                        </span>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
 
@@ -879,6 +942,11 @@ export function TaskDetailDrawer({
                           {agentProfile(taskAgent.agent).name}
                         </span>
                         <span className='truncate'>{taskAgent.action}</span>
+                        {taskAgent.model && (
+                          <span className='ml-auto shrink-0 rounded bg-zinc-200/80 dark:bg-zinc-700/80 px-1.5 py-0.5 text-[10px] font-medium text-zinc-600 dark:text-zinc-300'>
+                            {taskAgent.model}
+                          </span>
+                        )}
                       </div>
                     )}
 

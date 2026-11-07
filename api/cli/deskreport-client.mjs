@@ -652,6 +652,7 @@ function sendTelemetry(status) {
   const task = running[status?.agent];
   const data = {
     ...status,
+    model: status?.model || task?.model || config.models?.[status?.agent] || config.models?.[task?.agent] || undefined,
     alert: alert?.message,
     quotaLevel: alert?.level,
     quotaUsed: quota ? Math.round(quota.used * 100) : undefined,
@@ -662,7 +663,7 @@ function sendTelemetry(status) {
   };
   if (agents[data.agent]) {
     const repeated = data.action === agents[data.agent].action;
-    agents[data.agent] = { state: data.state, project: data.project, action: data.action, alert: data.alert, quotaLevel: data.quotaLevel };
+    agents[data.agent] = { state: data.state, project: data.project, action: data.action, alert: data.alert, quotaLevel: data.quotaLevel, model: data.model };
     if (data.action && !repeated) logs = [...logs.slice(-19), { agent: data.agent, action: String(data.action).slice(0, 180), at: new Date().toISOString() }];
     broadcast();
   }
@@ -718,9 +719,9 @@ function cleanSummary(raw) {
 function finish(task, exitCode, summary, touchedFiles = [], stopped = false) {
   delete running[task.agent];
   saveState();
-  socket.emit('machine:task-finished', { taskId: task.taskId, agent: task.agent, mode: task.mode, handoff: Boolean(task.comment), exitCode, summary, touchedFiles, stopped, tokens: task.tokens, contextTokens: task.contextTokens, contextLimit: task.contextLimit });
+  socket.emit('machine:task-finished', { taskId: task.taskId, agent: task.agent, mode: task.mode, handoff: Boolean(task.comment), exitCode, summary, touchedFiles, stopped, tokens: task.tokens, contextTokens: task.contextTokens, contextLimit: task.contextLimit, model: task.model });
   notify(`${agentLabels[task.agent]} ${exitCode === 0 ? 'terminou' : 'parou'}: ${task.title}`);
-  agents[task.agent] = { state: 'idle', action: exitCode === 0 ? 'Concluído' : `Parou com código ${exitCode}` };
+  agents[task.agent] = { state: 'idle', action: exitCode === 0 ? 'Concluído' : `Parou com código ${exitCode}`, model: task.model };
   broadcast();
   startNext(task.agent);
 }
@@ -936,11 +937,12 @@ async function runTask(task) {
     return;
   }
 
+  task.model = config.models?.[task.agent] || task.suggestedModel || task.model || '';
   console.log(`Rodando ${task.agent} em ${cwd} para a tarefa ${task.taskId}`);
   running[task.agent] = task;
   saveState();
   notify(`${agentLabels[task.agent]} começou: ${task.title}`);
-  sendTelemetry({ agent: task.agent, state: 'working', project: path.basename(cwd), action: `Iniciando: ${task.title}`, taskId: task.taskId });
+  sendTelemetry({ agent: task.agent, state: 'working', project: path.basename(cwd), action: `Iniciando: ${task.title}`, taskId: task.taskId, model: task.model });
 
   await downloadAttachments(task);
 
@@ -1719,7 +1721,7 @@ function callTool(name, args, agent) {
   if (name === 'deskreport_get_task') return mcpApi('GET', taskPath);
   if (name === 'deskreport_create_task') return mcpApi('POST', '/agents/mcp/tasks', { ...fields, agent });
   if (name === 'deskreport_update_task') return mcpApi('PATCH', taskPath, fields);
-  if (name === 'deskreport_comment_task') return mcpApi('POST', `${taskPath}/comments`, { content: fields.content, agent });
+  if (name === 'deskreport_comment_task') return mcpApi('POST', `${taskPath}/comments`, { content: fields.content, agent, model: config.models?.[agent] || '' });
   if (name === 'deskreport_ask_human') return mcpApi('POST', `${taskPath}/ask`, { question: fields.question, options: fields.options, agent });
   if (name === 'deskreport_dispatch_task') return mcpApi('POST', `${taskPath}/dispatch`, fields);
   if (name === 'deskreport_send_agent_message') {

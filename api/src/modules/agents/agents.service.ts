@@ -38,6 +38,8 @@ export type AgentStatus = {
   taskId?: string;
   // Tokens gastos na execução atual da tarefa (só o Claude Code informa)
   tokens?: number;
+  // Modelo em uso na execução, quando a máquina informa
+  model?: string;
   // Cota e contexto lidos do provedor na máquina. Sem leitura oficial ficam vazios
   quotaUsed?: number;
   quotaResetsAt?: string;
@@ -281,6 +283,7 @@ export class AgentsService {
       file: text(data.file),
       taskId: text(data.taskId, 60),
       tokens: positive(data.tokens) || previous?.tokens,
+      model: text(data.model, 120) || previous?.model,
       quotaUsed: quotaValid ? quotaUsed : undefined,
       quotaResetsAt: quotaValid ? quotaResetsAt : undefined,
       contextTokens: positive(data.contextTokens) || previous?.contextTokens,
@@ -539,7 +542,14 @@ export class AgentsService {
 
     const id = await this.findTaskId(organizationId, ref);
     await this.ensureAgentUsers(organizationId, [agent]);
-    await this.prisma.taskComment.create({ data: { taskId: id, userId: agentUsers[agent].id, content: toHtml(content) } });
+    await this.prisma.taskComment.create({
+      data: {
+        taskId: id,
+        userId: agentUsers[agent].id,
+        content: toHtml(content),
+        metadata: commentMetadata(agent, data),
+      },
+    });
     return this.prisma.task.findFirst({ where: { id, companyId: organizationId }, include: taskInclude });
   }
 
@@ -776,8 +786,14 @@ export class AgentsService {
     }))?.userId;
 
     if (userId) {
+      const agent = agentNames.includes(data?.agent) ? data.agent : undefined;
       await this.prisma.taskComment.create({
-        data: { taskId: task.id, userId, content: finishedComment(data) },
+        data: {
+          taskId: task.id,
+          userId,
+          content: finishedComment(data),
+          metadata: agent ? commentMetadata(agent, data) : undefined,
+        },
       });
     }
 
@@ -799,7 +815,12 @@ export function compactTask(task: any) {
     waitingFor: task.waitingFor,
     reporterId: task.reporterId,
     assignees: task.assignees?.map((user: any) => ({ id: user.id, name: user.name })),
-    comments: task.comments?.map((comment: any) => ({ author: comment.user?.name, content: comment.content, createdAt: comment.createdAt })),
+    comments: task.comments?.map((comment: any) => ({
+      author: comment.user?.name,
+      content: comment.content,
+      metadata: comment.metadata || undefined,
+      createdAt: comment.createdAt,
+    })),
     createdAt: task.createdAt,
     updatedAt: task.updatedAt,
   };
@@ -821,6 +842,11 @@ function agentName(value: unknown) {
 
 function toHtml(value: string) {
   return `<p>${escapeHtml(value).replace(/\n/g, '<br>')}</p>`;
+}
+
+function commentMetadata(agent: string, data: any) {
+  const model = text(data?.model, 120)?.trim();
+  return { agent, harness: agent, model: model || undefined };
 }
 
 function cleanSummary(raw: string | undefined): string {

@@ -9,7 +9,7 @@ const tiers: Record<string, { profile: string; agent: string; models: Record<str
 };
 
 const highPattern = /arquitet|seguranca|multi-?tenant|\bauth|autentica|autoriza|concorrencia|performance critica|refatoracao critica|regra de negocio critica/;
-const mediumPattern = /crud|migration|migrac|prisma|endpoint|controller|componente|\btela\b|schema|service|\brota/;
+const mediumPattern = /crud|migration|migrac|prisma|endpoint|controller|componente|\btela\b|modal|\bcard\b|pagina|interface|fluxo|integrac|websocket|\bsocket\b|\bapi\b|schema|service|\brota\b|feature|funcionalidade/;
 
 export function classifyTask(task: { title?: string | null; description?: string | null; tags?: unknown }) {
   const tags = Array.isArray(task.tags) ? task.tags.join(' ') : '';
@@ -20,8 +20,8 @@ export function classifyTask(task: { title?: string | null; description?: string
     .toLowerCase();
 
   if (highPattern.test(text)) return { complexity: 'high', reason: 'Envolve arquitetura, segurança ou regra de negócio crítica' };
-  if (mediumPattern.test(text)) return { complexity: 'medium', reason: 'Envolve CRUD, migration, rota ou componente' };
-  return { complexity: 'low', reason: 'Documentação, ajuste visual ou tarefa simples' };
+  if (mediumPattern.test(text)) return { complexity: 'medium', reason: 'Envolve interface, API, fluxo ou implementação de funcionalidade' };
+  return { complexity: 'low', reason: 'Documentação, ajuste pontual ou tarefa simples' };
 }
 
 // Perfil e modelo indicados para o tier. Com agent, o modelo é o desse agente
