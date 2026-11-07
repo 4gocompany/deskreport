@@ -23,6 +23,8 @@ model Task {
   // Tokens que os agentes gastaram na tarefa e o orçamento máximo dela
   tokensUsed  Int       @default(0) @map("tokens_used")
   tokenBudget Int       @default(50000) @map("token_budget")
+  // Pergunta aberta por um agente { agent, question, options, createdAt }: segura o Release até a pessoa responder
+  waitingFor  Json?     @map("waiting_for")
 
   team         Team?              @relation(fields: [teamId], references: [id], onDelete: SetNull)
   comments     TaskComment[]

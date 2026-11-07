@@ -150,6 +150,15 @@ export class AgentsController {
   }
 
   @AllowAnonymous()
+  @Post('agents/mcp/tasks/:ref/ask')
+  async mcpAsk(@Headers('authorization') authorization: string, @Param('ref') ref: string, @Body() data: any) {
+    const orgId = await this.machineOrg(authorization);
+    const task = await this.agentsService.askHuman(orgId, ref, data);
+    this.agentsGateway.emitTask(orgId, 'task:updated', task);
+    return compactTask(task);
+  }
+
+  @AllowAnonymous()
   @Post('agents/mcp/tasks/:ref/dispatch')
   async mcpDispatch(@Headers('authorization') authorization: string, @Param('ref') ref: string, @Body() data: any) {
     const orgId = await this.machineOrg(authorization);

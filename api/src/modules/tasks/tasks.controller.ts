@@ -54,6 +54,7 @@ export class TasksController {
     ) {
         const content = typeof data?.content === 'string' ? data.content : '';
         let task = await this.tasksService.addComment(id, orgId, userId, content);
+        this.agentsGateway.emitTask(orgId, 'task:updated', task);
 
         const agents = agentNames.filter((agent) => agent === data?.agent || new RegExp(`@${agent}\\b`, 'i').test(content));
         for (const agent of agents) {

@@ -9,7 +9,7 @@ jest.mock('../../agents/agents.gateway', () => ({ AgentsGateway: class AgentsGat
 describe('TasksController', () => {
   let controller: TasksController;
   const tasksService = { addComment: jest.fn() };
-  const agentsGateway = { dispatchTask: jest.fn() };
+  const agentsGateway = { dispatchTask: jest.fn(), emitTask: jest.fn() };
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({

@@ -1,4 +1,5 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 
 @Injectable()
@@ -56,9 +57,12 @@ export class TasksService {
     }
 
     async update(id: string, organizationId: string, data: any) {
-        await this.ensureTaskInOrg(id, organizationId);
+        const task = await this.ensureTaskInOrg(id, organizationId);
 
         const { title, description, project, status, priority, tags, dueDate, teamId, assigneeIds } = data;
+        if (status === 'release' && task.waitingFor) {
+            throw new BadRequestException('A tarefa tem uma pergunta de agente aguardando resposta');
+        }
 
         await this.prisma.task.update({
             where: { id },
@@ -91,18 +95,23 @@ export class TasksService {
             }
         });
 
+        // Comentário da pessoa responde a pergunta aberta pelo agente
+        await this.prisma.task.update({ where: { id }, data: { waitingFor: Prisma.DbNull } });
+
         return this.findOne(id, organizationId);
     }
 
     private async ensureTaskInOrg(id: string, organizationId: string) {
         const task = await this.prisma.task.findFirst({
             where: { id, companyId: organizationId },
-            select: { id: true }
+            select: { id: true, waitingFor: true }
         });
 
         if (!task) {
             throw new NotFoundException('Task not found');
         }
+
+        return task;
     }
 
     async remove(id: string, organizationId: string) {

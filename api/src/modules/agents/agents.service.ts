@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { createHash, randomBytes } from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 
@@ -511,6 +512,11 @@ export class AgentsService {
     const id = await this.findTaskId(organizationId, ref);
     const { assigneeIds, ...fields } = await this.taskFields(organizationId, data);
 
+    if (fields.status === 'release') {
+      const open = await this.prisma.task.findFirst({ where: { id, waitingFor: { not: Prisma.DbNull } }, select: { id: true } });
+      if (open) throw new BadRequestException('A tarefa tem uma pergunta aguardando resposta da pessoa');
+    }
+
     return this.prisma.task.update({
       where: { id },
       data: { ...fields, assignees: assigneeIds ? { set: assigneeIds.map((id) => ({ id })) } : undefined },
@@ -528,6 +534,24 @@ export class AgentsService {
     await this.ensureAgentUsers(organizationId, [agent]);
     await this.prisma.taskComment.create({ data: { taskId: id, userId: agentUsers[agent].id, content: toHtml(content) } });
     return this.prisma.task.findFirst({ where: { id, companyId: organizationId }, include: taskInclude });
+  }
+
+  // Pergunta do agente para a pessoa: aparece na tarefa e segura o Release até alguém responder
+  async askHuman(organizationId: string, ref: string, data: any) {
+    const agent = agentName(data?.agent);
+    const question = text(data?.question, 2000)?.trim();
+    if (!question) throw new BadRequestException('Informe question');
+
+    const options = Array.isArray(data?.options)
+      ? data.options.filter((option: unknown) => typeof option === 'string' && option.trim()).slice(0, 6).map((option: string) => option.trim().slice(0, 100))
+      : [];
+
+    const id = await this.findTaskId(organizationId, ref);
+    return this.prisma.task.update({
+      where: { id },
+      data: { waitingFor: { agent, question, options, createdAt: new Date().toISOString() } },
+      include: taskInclude,
+    });
   }
 
   // Campos que o agente pode mandar na criação e na edição, validados aqui na borda
@@ -765,6 +789,7 @@ export function compactTask(task: any) {
     status: task.status,
     priority: task.priority,
     tags: task.tags,
+    waitingFor: task.waitingFor,
     reporterId: task.reporterId,
     assignees: task.assignees?.map((user: any) => ({ id: user.id, name: user.name })),
     comments: task.comments?.map((comment: any) => ({ author: comment.user?.name, content: comment.content, createdAt: comment.createdAt })),
