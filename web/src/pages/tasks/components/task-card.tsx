@@ -1,5 +1,6 @@
 import { PRIORITY_CONFIG, TaskCardProps } from '../tasks-data';
 import { useDraggable } from '@dnd-kit/react';
+import { MessageCircleQuestion } from 'lucide-react';
 import { agentProfile, findTaskAgent, useAgentsStore } from '../use-agents';
 
 interface TaskCardComponentProps {
@@ -64,6 +65,12 @@ export function TaskCard({ task, projectName, onClick }: TaskCardComponentProps)
       <div className='flex items-center justify-between mt-3 pt-2.5 border-t border-zinc-100 dark:border-zinc-800/60'>
         <div className='flex items-center gap-2'>
           <span className='text-xs font-medium text-zinc-400 tabular-nums'>#{String(task.shortId || 0).padStart(3, '0')}</span>
+          {task.waitingFor && (
+            <span className='flex items-center gap-1 text-[11px] font-semibold text-amber-600 dark:text-amber-400'>
+              <MessageCircleQuestion size={12} />
+              Aguardando você
+            </span>
+          )}
           {task.tags && task.tags.length > 0 && (
             <div className='flex gap-1.5 border-l border-zinc-200 dark:border-zinc-800 pl-2'>
               {task.tags.slice(0, 2).map((tag) => {

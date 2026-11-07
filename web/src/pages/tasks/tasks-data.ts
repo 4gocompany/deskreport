@@ -13,6 +13,14 @@ export type TaskComment = {
   }
 }
 
+// Pergunta aberta por um agente: enquanto existir, a tarefa não vai para Release
+export type TaskWaitingFor = {
+  agent: string;
+  question: string;
+  options?: string[];
+  createdAt: string;
+}
+
 export type TaskCardProps = {
   id: string;
   shortId?: number;
@@ -38,6 +46,7 @@ export type TaskCardProps = {
   description?: string;
   tokensUsed?: number;
   tokenBudget?: number;
+  waitingFor?: TaskWaitingFor | null;
 }
 
 export const STATUS_CONFIG: Record<TaskStatus, { label: string; color: string }> = {

@@ -15,6 +15,7 @@ import {
   Tag,
   Square,
   Terminal,
+  MessageCircleQuestion,
 } from 'lucide-react';
 import { TaskCardProps, TaskComment, TaskStatus, PRIORITY_CONFIG, STATUS_CONFIG } from './tasks-data';
 import { useState, useEffect } from 'react';
@@ -286,6 +287,18 @@ export function TaskDetailDrawer({
     onClose();
   }
 
+  // A resposta vira comentário e chama de volta o agente que perguntou
+  async function handleAnswer(answer: string) {
+    if (!displayTask?.waitingFor || isSubmittingComment) return;
+
+    setIsSubmittingComment(true);
+    try {
+      await addComment(displayTask.id, answer, displayTask.waitingFor.agent);
+    } finally {
+      setIsSubmittingComment(false);
+    }
+  }
+
   async function handleAddComment() {
     if (!displayTask || !comment.trim() || isSubmittingComment) return;
 
@@ -456,6 +469,37 @@ export function TaskDetailDrawer({
                   )}
                 </div>
 
+                {/* Pergunta aberta pelo agente */}
+                {task && displayTask.waitingFor && (
+                  <div className='rounded-xl border border-amber-200 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-500/10 p-3.5 space-y-2.5'>
+                    <div className='flex items-center gap-2 text-xs font-semibold text-amber-700 dark:text-amber-300'>
+                      <MessageCircleQuestion size={14} />
+                      {agentProfile(displayTask.waitingFor.agent).name} está aguardando você
+                    </div>
+                    <p className='text-sm text-zinc-800 dark:text-zinc-200'>
+                      {displayTask.waitingFor.question}
+                    </p>
+                    {displayTask.waitingFor.options && displayTask.waitingFor.options.length > 0 && (
+                      <div className='flex flex-wrap gap-2'>
+                        {displayTask.waitingFor.options.map((option) => (
+                          <Button
+                            key={option}
+                            size='sm'
+                            variant='outline'
+                            onClick={() => handleAnswer(option)}
+                            disabled={isSubmittingComment}
+                          >
+                            {option}
+                          </Button>
+                        ))}
+                      </div>
+                    )}
+                    <p className='text-xs text-zinc-500'>
+                      Ou responda com texto abaixo acionando {agentProfile(displayTask.waitingFor.agent).name}.
+                    </p>
+                  </div>
+                )}
+
                 {/* Caixa de Novo Comentário */}
                 {task && (
                   <div className='rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-950/40 p-3 space-y-2.5'>
@@ -555,7 +599,11 @@ export function TaskDetailDrawer({
                     className={selectClass}
                   >
                     {Object.entries(STATUS_CONFIG).map(([id, config]) => (
-                      <option key={id} value={id}>
+                      <option
+                        key={id}
+                        value={id}
+                        disabled={id === 'release' && !!displayTask.waitingFor}
+                      >
                         {config.label}
                       </option>
                     ))}

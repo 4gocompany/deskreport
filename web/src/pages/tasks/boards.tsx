@@ -185,6 +185,7 @@ export function TaskBoards() {
 
               const task = tasks.find((t) => t.id === sourceId);
               if (!task || task.status === targetColumnId) return;
+              if (targetColumnId === 'release' && task.waitingFor) return;
 
               updateTask(task.id, { status: targetColumnId as TaskStatus });
             }}
