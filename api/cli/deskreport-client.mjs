@@ -661,7 +661,7 @@ function cleanSummary(raw) {
 function finish(task, exitCode, summary, touchedFiles = [], stopped = false) {
   delete running[task.agent];
   saveState();
-  socket.emit('machine:task-finished', { taskId: task.taskId, agent: task.agent, mode: task.mode, exitCode, summary, touchedFiles, stopped, tokens: task.tokens, contextTokens: task.contextTokens, contextLimit: task.contextLimit });
+  socket.emit('machine:task-finished', { taskId: task.taskId, agent: task.agent, mode: task.mode, handoff: Boolean(task.comment), exitCode, summary, touchedFiles, stopped, tokens: task.tokens, contextTokens: task.contextTokens, contextLimit: task.contextLimit });
   notify(`${agentLabels[task.agent]} ${exitCode === 0 ? 'terminou' : 'parou'}: ${task.title}`);
   agents[task.agent] = { state: 'idle', action: exitCode === 0 ? 'Concluído' : `Parou com código ${exitCode}` };
   broadcast();
@@ -669,6 +669,8 @@ function finish(task, exitCode, summary, touchedFiles = [], stopped = false) {
 }
 
 function enqueueTask(task) {
+  // Outra máquina da organização pode ter esse agente, aqui ele fica de fora
+  if (!enabledAgents.includes(task.agent)) return;
   const problem = quotaProblem(task.agent);
   if (running[task.agent] || problem) {
     queues[task.agent] = queues[task.agent] || [];
@@ -1169,7 +1171,7 @@ function plainText(html) {
 
 // Tarefa interrompida (cota ou client reiniciado) volta com o aviso e o último progresso
 function buildPrompt(task, cwd) {
-  const prompt = [taskPrompt(task), gitContext(cwd)].filter(Boolean).join('\n\n');
+  const prompt = [taskPrompt(task, cwd), teamNote(task.agent), gitContext(cwd)].filter(Boolean).join('\n\n');
   if (!task.resumed) return prompt;
   return [
     prompt,
@@ -1193,11 +1195,41 @@ function gitContext(cwd) {
   }
 }
 
-function taskPrompt(task) {
+// Esteira do time: cada etapa termina mencionando com @ o agente da próxima, conforme os cargos desta máquina
+function teamNote(agent) {
+  const team = enabledAgents
+    .filter((other) => other !== agent && config.agentRoles[other]?.length)
+    .map((other) => `- @${other} (${agentLabels[other]}): ${config.agentRoles[other].map((role) => roleCatalog[role][0]).join(', ')}`);
+  if (team.length === 0) return '';
+
+  return [
+    'Time de agentes desta máquina:',
+    ...team,
+    [
+      'A esteira da tarefa é: especificação (Arquitetura), implementação (Engenharia), revisão (Code Review), correção (Engenharia), nova revisão, e por fim commit e deploy (DevOps).',
+      'Ao terminar a sua etapa, termine o resumo mencionando com @ o agente responsável pela próxima etapa e diga o que ele deve fazer, por exemplo: @claude implementar a spec aprovada.',
+      'O agente mencionado é acionado automaticamente. Use @ só para quem deve agir agora, nunca para citar alguém de passagem.',
+      'Se a tarefa foi concluída por completo ou depende de uma decisão de pessoa, não mencione nenhum agente e explique o que falta.',
+    ].join('\n'),
+  ].join('\n');
+}
+
+// Pasta sem alterações pendentes ainda não tem o que revisar
+function hasChanges(cwd) {
+  try {
+    return execFileSync('git', ['status', '-s', '--', '.'], { cwd, encoding: 'utf8', timeout: 10_000 }).trim() !== '';
+  } catch {
+    return true;
+  }
+}
+
+function taskPrompt(task, cwd) {
   const description = plainText(task.description || '');
   // Todos os comentários anteriores, de pessoas e de agentes, para continuar o trabalho do time
   const comments = (task.comments || []).map(plainText).filter(Boolean);
   const notes = comments.length > 0 ? `Comentários anteriores na tarefa:\n- ${comments.join('\n- ')}` : '';
+  // Etapa passada por outro agente da esteira com @
+  const request = task.mode !== 'comment' && task.comment ? `Pedido do agente anterior para esta etapa: ${plainText(task.comment)}` : '';
 
   if (task.mode === 'comment') {
     return [
@@ -1215,18 +1247,36 @@ function taskPrompt(task) {
     ].filter(Boolean).join('\n\n');
   }
 
+  if (task.agent === 'antigravity' && !hasChanges(cwd)) {
+    return [
+      `Especificação da tarefa do DeskReport: ${task.title}`,
+      description,
+      attachmentsNote(task),
+      notes,
+      request,
+      [
+        'Você é o arquiteto do time e esta tarefa ainda não tem alterações no código.',
+        'Leia o código desta pasta e escreva a especificação: o que muda, arquivos e rotas afetados, modelo de dados e regras de negócio.',
+        'Não implemente a tarefa e não faça commit.',
+        'Responda em português com a spec objetiva. Esse texto vira o comentário da tarefa.',
+      ].join('\n'),
+    ].filter(Boolean).join('\n\n');
+  }
+
   if (task.agent === 'antigravity') {
     return [
       `Code Review da tarefa do DeskReport: ${task.title}`,
       description,
       attachmentsNote(task),
       notes,
+      request,
       [
         'Você é o revisor do time. Rode `git status -s -- .` e `git diff` nesta pasta e revise as alterações.',
         'Valide se o código atende a descrição da tarefa e os comentários acima.',
         'Confira as regras globais: nenhum travessão, nenhum Set do JavaScript, isolamento multi-tenant em toda query e rota (companyId ou organizationId), sem segredos em log ou resposta, e código simples sem camadas a mais.',
         'Não altere arquivos e não faça commit.',
         'Responda em português com um parecer objetivo: aprovado ou não, e a lista de problemas com arquivo e linha. Esse texto vira o comentário da tarefa.',
+        'Reprovado volta para a Engenharia corrigir, aprovado segue para o DevOps fazer commit e deploy.',
       ].join('\n'),
     ].filter(Boolean).join('\n\n');
   }
@@ -1236,6 +1286,7 @@ function taskPrompt(task) {
     description,
     attachmentsNote(task),
     notes,
+    request,
     [
       'Ao finalizar a tarefa, responda no final apenas com um comentário claro e direto em português do que foi feito e da regra de negócio ajustada.',
       'Nunca inclua no resumo final saídas de comandos (como $ cd, npx tsc, git diff, head), logs de terminal nem trechos longos de código.',

@@ -14,6 +14,12 @@ export class AgentsGateway implements OnGatewayConnection {
   @WebSocketServer()
   server: Server;
 
+  // Execuções automáticas seguidas por tarefa, sem nenhuma pessoa no meio
+  private autoRuns: Record<string, number> = {};
+
+  // Agentes já acionados por menção durante a etapa atual, por tarefa e agente que mencionou
+  private handoffs: Record<string, string[]> = {};
+
   constructor(private agentsService: AgentsService) { }
 
   async handleConnection(client: Socket) {
@@ -97,6 +103,9 @@ export class AgentsGateway implements OnGatewayConnection {
     const organizationId = client.data.organizationId;
     const task = await this.agentsService.finishTask(organizationId, data);
     if (task) this.server.to(uiRoom(organizationId)).emit('task:updated', task);
+    if (task && data?.exitCode === 0 && !data?.stopped) await this.nextStage(organizationId, task.id, data);
+    // A etapa acabou: a próxima pode mencionar de novo os mesmos agentes
+    if (task) delete this.handoffs[`${task.id}:${data.agent}`];
 
     const status = this.agentsService.saveStatus(organizationId, {
       agent: data?.agent,
@@ -195,10 +204,53 @@ export class AgentsGateway implements OnGatewayConnection {
     }
 
     const { task, ...job } = await this.agentsService.startDispatch(taskId, organizationId, data);
+    // Acionamento por uma pessoa reinicia o limite da esteira automática
+    if (!data?.auto) delete this.autoRuns[task.id];
     if (job.mode === 'task') this.agentsService.clearOutput(organizationId, task.id);
     this.emitTask(organizationId, 'task:updated', task);
     this.server.to(machineRoom(organizationId)).emit('agent:dispatch', job);
     return { ...job, task };
+  }
+
+  // Esteira automática: quem terminou passa a vez para os agentes que mencionou com @ no resumo.
+  // Sem menção, a implementação segue para a revisão do Antigravity quando a organização usa esse agente
+  async nextStage(organizationId: string, taskId: string, data: any) {
+    const summary = typeof data.summary === 'string' ? data.summary : '';
+    await this.dispatchMentions(organizationId, taskId, summary, data.agent);
+    // Conta também quem o agente já acionou por comentário durante a etapa
+    const handedOff = (this.handoffs[`${taskId}:${data.agent}`] || []).length > 0;
+    // Etapa pedida por outro agente segue só por menção, senão o commit do DevOps voltaria para a revisão
+    if (handedOff || data.handoff || data.agent === 'antigravity' || data.mode === 'comment') return;
+
+    if ((await this.agentsService.enabledAgents(organizationId)).includes('antigravity') && this.countAutoRun(taskId)) {
+      await this.dispatchTask(organizationId, taskId, { agent: 'antigravity', auto: true }).catch(() => null);
+    }
+  }
+
+  // Agente que menciona outro (@claude, @opencode...) passa a próxima etapa para ele, com o comentário como pedido.
+  // Só agentes habilitados, e cada um uma vez por etapa de quem mencionou
+  async dispatchMentions(organizationId: string, taskId: string, content: string, fromAgent: string, projectPath?: string) {
+    const enabled = await this.agentsService.enabledAgents(organizationId);
+    const key = `${taskId}:${fromAgent}`;
+    const already = this.handoffs[key] || [];
+    const agents = enabled.filter((agent) => agent !== fromAgent && !already.includes(agent) && new RegExp(`@${agent}\\b`, 'i').test(content));
+
+    const dispatched = [];
+    for (const agent of agents) {
+      if (!this.countAutoRun(taskId)) break;
+      const result = await this.dispatchTask(organizationId, taskId, { agent, comment: content, projectPath, auto: true }).catch(() => null);
+      if (result) dispatched.push(result);
+    }
+    this.handoffs[key] = [...already, ...dispatched.map((result) => result.agent)];
+    return dispatched;
+  }
+
+  // Limite de execuções seguidas entre agentes, para não virar conversa sem fim
+  private countAutoRun(taskId: string) {
+    const runs = this.autoRuns[taskId] || 0;
+    if (runs >= MAX_AUTO_RUNS) return false;
+    this.autoRuns[taskId] = runs + 1;
+    return true;
   }
 
   // Manda a máquina matar o agente que roda a tarefa (ou tirar ela da fila)
@@ -217,6 +269,9 @@ export class AgentsGateway implements OnGatewayConnection {
     this.server.to(uiRoom(organizationId)).emit(event, task);
   }
 }
+
+// Spec, implementação, revisão, correção, nova revisão e commit/deploy cabem com folga
+const MAX_AUTO_RUNS = 8;
 
 function machineRoom(organizationId: string) {
   return `org:${organizationId}:machines`;

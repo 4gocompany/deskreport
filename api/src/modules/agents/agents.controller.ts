@@ -144,6 +144,7 @@ export class AgentsController {
     const orgId = await this.machineOrg(authorization);
     const task = await this.agentsService.commentTask(orgId, ref, data);
     this.agentsGateway.emitTask(orgId, 'task:updated', task);
+    await this.agentsGateway.dispatchMentions(orgId, task.id, data.content, data.agent, data.projectPath);
     return compactTask(task);
   }
 
@@ -152,7 +153,7 @@ export class AgentsController {
   async mcpDispatch(@Headers('authorization') authorization: string, @Param('ref') ref: string, @Body() data: any) {
     const orgId = await this.machineOrg(authorization);
     const taskId = await this.agentsService.findTaskId(orgId, ref);
-    const { task, ...job } = await this.agentsGateway.dispatchTask(orgId, taskId, data);
+    const { task, ...job } = await this.agentsGateway.dispatchTask(orgId, taskId, { ...data, auto: true });
     return { taskId: job.taskId, agent: job.agent, projectPath: job.projectPath, task: compactTask(task) };
   }
 

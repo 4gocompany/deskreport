@@ -328,7 +328,8 @@ export class AgentsService {
       agent,
       projectPath,
       mode,
-      comment: mode === 'comment' ? text(data?.comment, 10000) : undefined,
+      // No modo task é o pedido do agente anterior da esteira, quando houver
+      comment: text(data?.comment, 10000),
     };
   }
 
