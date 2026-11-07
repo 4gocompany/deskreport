@@ -1,29 +1,34 @@
 import { AgentStatus } from './use-agents';
 import { TaskCardProps } from './tasks-data';
 
+// Especificação só entra quando a complexidade pede, as demais etapas valem para toda tarefa
 export function taskSteps(task: Pick<TaskCardProps, 'complexity' | 'status'>) {
-  if (task.complexity === 'high') return ['Especificação', 'Desenvolvimento', 'QA', 'Revisão', 'Deploy'];
-  if (task.complexity === 'medium') return ['Especificação', 'Desenvolvimento', 'QA', 'Deploy'];
-  if (task.status === 'review') return ['Desenvolvimento', 'QA', 'Revisão', 'Deploy'];
-  return ['Desenvolvimento', 'QA', 'Deploy'];
+  const steps = ['Desenvolvimento', 'QA', 'Revisão', 'Deploy'];
+  if (task.complexity === 'medium' || task.complexity === 'high') return ['Especificação', ...steps];
+  return steps;
 }
 
+// A etapa ativa segue o status e o que o agente está fazendo, nunca o nome do agente sozinho
 export function activeStep(task: Pick<TaskCardProps, 'complexity' | 'status'>, agent?: AgentStatus) {
   const steps = taskSteps(task);
+  if (task.status === 'done' || task.status === 'release') return steps.length - 1;
+
   if (agent?.state === 'working') {
     const action = `${agent.action || ''} ${agent.tool || ''}`.toLowerCase();
-    if (agent.agent === 'antigravity' || /spec|analise|analista/.test(action)) return stepIndex(steps, 'Especificação');
-    if (agent.agent === 'opencode' || /qa|test|valid/.test(action)) return stepIndex(steps, 'QA');
-    if (/revis|review|commit|deploy|release/.test(action)) return stepIndex(steps, task.status === 'review' ? 'Revisão' : 'Deploy');
+    if (task.status === 'review' || /revis|review/.test(action)) return stepIndex(steps, 'Revisão');
+    if (/deploy|release/.test(action)) return stepIndex(steps, 'Deploy');
+    if (/spec|analise|analista/.test(action)) return stepIndex(steps, 'Especificação');
+    if (/qa|test|valid/.test(action)) return stepIndex(steps, 'QA');
     return stepIndex(steps, 'Desenvolvimento');
   }
-  if (task.status === 'done' || task.status === 'release') return steps.length - 1;
-  if (task.status === 'review') return stepIndex(steps, 'Revisão', stepIndex(steps, 'QA'));
+
+  if (task.status === 'review') return stepIndex(steps, 'Revisão');
   if (task.status === 'in-progress') return stepIndex(steps, 'Desenvolvimento');
   return -1;
 }
 
-function stepIndex(steps: string[], name: string, fallback = 0) {
+// Etapa que não existe na tarefa cai em Desenvolvimento, sem voltar para o início da esteira
+function stepIndex(steps: string[], name: string) {
   const index = steps.indexOf(name);
-  return index >= 0 ? index : fallback;
+  return index >= 0 ? index : steps.indexOf('Desenvolvimento');
 }

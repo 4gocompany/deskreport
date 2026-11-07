@@ -947,7 +947,7 @@ async function runTask(task) {
   await downloadAttachments(task);
 
   const stream = task.agent === 'claude';
-  const [bin, child] = startAgent(task.agent, buildPrompt(task, cwd), cwd, { DESKREPORT_TASK_ID: task.taskId }, stream, undefined, task.suggestedModel);
+  const [bin, child] = startAgent(task.agent, buildPrompt(task, cwd), cwd, { DESKREPORT_TASK_ID: task.taskId, DESKREPORT_MODEL: task.model }, stream, undefined, task.suggestedModel);
 
   let output = '';
   let stopReason = '';
@@ -1721,7 +1721,7 @@ function callTool(name, args, agent) {
   if (name === 'deskreport_get_task') return mcpApi('GET', taskPath);
   if (name === 'deskreport_create_task') return mcpApi('POST', '/agents/mcp/tasks', { ...fields, agent });
   if (name === 'deskreport_update_task') return mcpApi('PATCH', taskPath, fields);
-  if (name === 'deskreport_comment_task') return mcpApi('POST', `${taskPath}/comments`, { content: fields.content, agent, model: config.models?.[agent] || '' });
+  if (name === 'deskreport_comment_task') return mcpApi('POST', `${taskPath}/comments`, { content: fields.content, agent, model: process.env.DESKREPORT_MODEL || config.models?.[agent] || '' });
   if (name === 'deskreport_ask_human') return mcpApi('POST', `${taskPath}/ask`, { question: fields.question, options: fields.options, agent });
   if (name === 'deskreport_dispatch_task') return mcpApi('POST', `${taskPath}/dispatch`, fields);
   if (name === 'deskreport_send_agent_message') {
