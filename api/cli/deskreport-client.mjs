@@ -886,6 +886,13 @@ function emptyDir() {
   return dir;
 }
 
+// Pasta isolada e vazia dedicada exclusivamente ao classificador de tarefas
+function classifierDir() {
+  const dir = path.join(os.tmpdir(), 'deskreport-classifier');
+  mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
 // O .git pode ficar na raiz do Workspace, acima do projeto. Ele entra na sandbox para o commit funcionar
 function projectGitDir(cwd) {
   try {
@@ -1356,13 +1363,12 @@ async function classifyWithJev(task) {
   return { complexity, reason: `Jev classificou como ${choice} com confiança ${confidence}`, needsSpec: false };
 }
 
-// Ordem de eleição: OpenCode com modelo gratuito, Claude Haiku, Codex mini e Gemini Flash
+// Ordem de eleição: OpenCode com modelo gratuito, Claude Haiku e Codex mini (read-only estrito)
 function classifierCommand(prompt) {
   const installed = detectedAgents.length ? detectedAgents : detectAgents();
   if (installed.includes('opencode')) return ['opencode', ['run', '--model', 'opencode/big-pickle', prompt]];
   if (installed.includes('claude')) return ['claude', ['-p', prompt, '--model', 'haiku', '--output-format', 'json', '--tools', '', '--strict-mcp-config']];
   if (installed.includes('codex')) return ['codex', ['exec', '--sandbox', 'read-only', '--skip-git-repo-check', '--model', 'gpt-5.1-codex-mini', prompt]];
-  if (installed.includes('gemini')) return ['gemini', ['--model', 'gemini-2.5-flash', '-p', prompt]];
   return null;
 }
 
@@ -1391,9 +1397,9 @@ Formato obrigatório da resposta:
   const windows = process.platform === 'win32';
 
   return new Promise((resolve) => {
-    // Pasta vazia e permissões negadas: o classificador não enxerga o repositório
+    // Pasta vazia dedicada e permissões negadas: o classificador não enxerga o repositório nem o chat
     const child = spawn(bin, windows ? args.map(windowsArg) : args, {
-      cwd: emptyDir(),
+      cwd: classifierDir(),
       shell: windows,
       env: {
         ...agentEnv(),
