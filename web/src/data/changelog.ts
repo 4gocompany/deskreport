@@ -15,6 +15,34 @@ export type ReleaseNote = {
 
 export const RELEASES: ReleaseNote[] = [
   {
+    version: '1.2.0',
+    title: 'Papéis Desacoplados, Seletores Estritos e Skills Recomendadas',
+    date: '09/11/2026',
+    summary: 'Suporte a subagentes por cargo, eliminação de campos abertos na configuração e catálogo de skills com auditoria de segurança baseada na Cloudflare.',
+    items: [
+      {
+        category: 'feature',
+        text: 'Desacoplamento total de papéis: um único harness (como Claude Code) agora pode assumir todos os papéis da esteira usando modelos diferentes por função.',
+      },
+      {
+        category: 'feature',
+        text: 'Catálogo de skills recomendadas no widget local, trazendo Auditoria de Segurança (Cloudflare) e Modo Econômico (YAGNI).',
+      },
+      {
+        category: 'feature',
+        text: 'Scanner de segurança autoral embutido no client que analisa queries multi-tenant, IDOR, timingSafeEqual e vazamentos em modo somente leitura.',
+      },
+      {
+        category: 'improvement',
+        text: 'Seletores estritos no widget e no onboarding da CLI, eliminando digitação manual de modelos para prevenir erros.',
+      },
+      {
+        category: 'security',
+        text: 'Verificação ativa de limites de confiança e isolamento multi-tenant contra IDOR e ataques de temporização em webhooks.',
+      },
+    ],
+  },
+  {
     version: '1.1.0',
     title: 'Identificação de Ambientes e Isolamento de Workspace',
     date: '09/11/2026',

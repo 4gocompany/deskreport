@@ -1,0 +1,18 @@
+
+# Documentos internos locais
+SPEC-*.md
+*/SPEC-*.md
+VISAO.md
+*/VISAO.md
+
+# Documentos internos locais (apenas no monorepo privado)
+SPEC-*.md
+*/SPEC-*.md
+VISAO*.md
+*/VISAO*.md
+BACKLOG*.md
+*/BACKLOG*.md
+PUBLICIDADE*.md
+*/PUBLICIDADE*.md
+skills.md
+*/skills.md

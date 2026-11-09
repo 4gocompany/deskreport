@@ -3,7 +3,7 @@
 // Uso: deskreport [start|setup|login|widget|mcp] [--widget] [--agent <agente>]
 import { spawn, execFile, execFileSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { chmodSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
@@ -38,6 +38,72 @@ const roleCatalog = {
 };
 const roleNames = Object.keys(roleCatalog);
 const defaultRoles = { antigravity: ['architecture', 'review'], claude: ['engineering', 'devops'], opencode: ['qa', 'documentation'] };
+
+// Modelos estritos suportados por harness (sem entrada de texto livre)
+const harnessModelCatalog = {
+  claude: [
+    { id: 'default', label: 'Padrão da CLI' },
+    { id: 'claude-3-5-sonnet', label: 'Claude 3.5 Sonnet (Engenharia e Raciocínio)' },
+    { id: 'claude-3-5-haiku', label: 'Claude 3.5 Haiku (Rápido e Econômico)' },
+    { id: 'claude-3-opus', label: 'Claude 3 Opus (Análise Profunda)' },
+  ],
+  opencode: [
+    { id: 'default', label: 'Padrão da CLI' },
+    { id: 'claude-3-5-sonnet', label: 'Claude 3.5 Sonnet' },
+    { id: 'claude-3-5-haiku', label: 'Claude 3.5 Haiku' },
+    { id: 'gpt-4o', label: 'GPT-4o' },
+    { id: 'gpt-4o-mini', label: 'GPT-4o Mini' },
+  ],
+  antigravity: [
+    { id: 'default', label: 'Padrão da CLI' },
+    { id: 'gemini-1.5-pro', label: 'Gemini 1.5 Pro (Arquitetura e Contexto Longo)' },
+    { id: 'gemini-1.5-flash', label: 'Gemini 1.5 Flash (Leve e Rápido)' },
+  ],
+  codex: [
+    { id: 'default', label: 'Padrão da CLI' },
+    { id: 'o3-mini', label: 'o3-mini' },
+    { id: 'gpt-4o', label: 'GPT-4o' },
+  ],
+  gemini: [
+    { id: 'default', label: 'Padrão da CLI' },
+    { id: 'gemini-1.5-pro', label: 'Gemini 1.5 Pro' },
+    { id: 'gemini-1.5-flash', label: 'Gemini 1.5 Flash' },
+  ],
+};
+
+function defaultRoleAssignments(detected = []) {
+  const assignments = {};
+  const hasClaude = detected.includes('claude');
+  const hasOpencode = detected.includes('opencode');
+  const hasAntigravity = detected.includes('antigravity');
+
+  for (const role of roleNames) {
+    if (hasAntigravity && (role === 'architecture' || role === 'review')) {
+      assignments[role] = { harness: 'antigravity', model: 'default' };
+    } else if (hasOpencode && (role === 'qa' || role === 'documentation')) {
+      assignments[role] = { harness: 'opencode', model: 'default' };
+    } else if (hasClaude) {
+      const model = (role === 'qa' || role === 'documentation') ? 'claude-3-5-haiku' : 'claude-3-5-sonnet';
+      assignments[role] = { harness: 'claude', model };
+    } else {
+      const first = detected[0] || 'claude';
+      assignments[role] = { harness: first, model: 'default' };
+    }
+  }
+  return assignments;
+}
+
+function deriveAgentRoles(assignments) {
+  const roles = {};
+  for (const agent of agentNames) roles[agent] = [];
+  if (!assignments || typeof assignments !== 'object') return roles;
+  for (const [role, item] of Object.entries(assignments)) {
+    if (item?.harness && roles[item.harness]) {
+      roles[item.harness].push(role);
+    }
+  }
+  return roles;
+}
 const rolesStart = '<!-- DESKREPORT_ROLES_START -->';
 const rolesEnd = '<!-- DESKREPORT_ROLES_END -->';
 // Arquivo de instruções global de cada harness
@@ -86,6 +152,8 @@ let authPending = false;
 function loadConfig() {
   const saved = readJson(configPath);
   const root = process.env.WORKSPACE_ROOT || saved.workspaceRoot;
+  const roleAssignments = saved.roleAssignments || defaultRoleAssignments(detectedAgents);
+  const agentRoles = saved.agentRoles || deriveAgentRoles(roleAssignments);
 
   return {
     apiUrl: process.env.DESKREPORT_API_URL || saved.apiUrl || 'https://api.deskreport.com.br',
@@ -94,10 +162,12 @@ function loadConfig() {
     workspaceRoot: root ? path.resolve(root) : '',
     organizationName: saved.organizationName,
     enabledAgents: Array.isArray(saved.enabledAgents) ? agentNames.filter((agent) => saved.enabledAgents.includes(agent)) : undefined,
-    agentRoles: saved.agentRoles || defaultRoles,
+    roleAssignments,
+    agentRoles,
     agentProfiles: saved.agentProfiles || {},
     models: saved.models,
     alerts: saved.alerts !== false,
+    yagniMode: saved.yagniMode || false,
   };
 }
 
@@ -108,11 +178,33 @@ function saveConfig(changes) {
   chmodSync(configPath, 0o600);
 }
 
-// Wizard do terminal: pergunta a pasta e segue para o login no navegador
+// Wizard do terminal: pergunta a pasta, configura papeis guiados e segue para o login no navegador
 async function setup() {
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   const fallback = workspaceRoot || process.cwd();
   const answer = await rl.question(`Pasta raiz dos projetos (${fallback}): `);
+
+  const detected = detectAgents();
+  console.log(`\nAgentes detectados no PATH: ${detected.join(', ') || 'nenhum'}`);
+  if (detected.length > 0) {
+    console.log('\nConfiguração de Papéis da Esteira:');
+    if (detected.length === 1 && detected[0] === 'claude') {
+      console.log('1. Recomendado: Claude Sonnet para Engenharia/Review e Haiku para QA/Docs');
+      console.log('2. Econômico: Claude Haiku para todos os papéis');
+      console.log('3. Manter configuração padrão');
+      const opt = await rl.question('Escolha uma opção (1-3) [1]: ');
+      if (opt.trim() === '2') {
+        const assignments = {};
+        for (const role of roleNames) assignments[role] = { harness: 'claude', model: 'claude-3-5-haiku' };
+        saveConfig({ roleAssignments: assignments, agentRoles: deriveAgentRoles(assignments) });
+        console.log('Configurado: Modo econômico com Claude Haiku.');
+      } else if (opt.trim() !== '3') {
+        const assignments = defaultRoleAssignments(['claude']);
+        saveConfig({ roleAssignments: assignments, agentRoles: deriveAgentRoles(assignments) });
+        console.log('Configurado: Sonnet para código e Haiku para documentação e testes.');
+      }
+    }
+  }
   rl.close();
 
   const ok = await authorize(path.resolve(answer.trim() || fallback));
@@ -273,6 +365,10 @@ function handleLocal(req, res) {
   if (route === 'POST /config/agents') return changeAgents(req, res);
   if (route === 'POST /config/models') return changeModel(req, res);
   if (route === 'POST /config/agent-roles') return changeRoles(req, res);
+  if (route === 'POST /config/role-assignments') return changeRoleAssignments(req, res);
+  if (route === 'POST /skills/audit') return runAuditEndpoint(req, res);
+  if (route === 'POST /skills/install') return installSkillEndpoint(req, res);
+  if (route === 'POST /skills/toggle-yagni') return toggleYagni(req, res);
   if (route === 'POST /config/agent-profiles') return changeProfiles(req, res);
   if (route === 'POST /quota/continue') return readJsonBody(req, (data) => sendJson(res, 200, { ok: continueAgent(data?.agent) }));
   if (route === 'POST /auth/start') return startAuth(res);
@@ -435,6 +531,148 @@ function changeRoles(req, res) {
     if (socket?.connected) socket.emit('machine:roles-updated', { roles: agentRoles });
     sendJson(res, 200, { agentRoles, files });
     broadcast();
+  });
+}
+
+function changeRoleAssignments(req, res) {
+  readJsonBody(req, (data) => {
+    if (!data?.assignments || typeof data.assignments !== 'object') return sendJson(res, 400, { error: 'Envie assignments' });
+
+    const roleAssignments = {};
+    for (const role of roleNames) {
+      const item = data.assignments[role];
+      if (item && agentNames.includes(item.harness)) {
+        const allowedModels = harnessModelCatalog[item.harness]?.map((m) => m.id) || ['default'];
+        const model = allowedModels.includes(item.model) ? item.model : 'default';
+        roleAssignments[role] = { harness: item.harness, model };
+      }
+    }
+
+    config.roleAssignments = roleAssignments;
+    config.agentRoles = deriveAgentRoles(roleAssignments);
+    saveConfig({ roleAssignments, agentRoles: config.agentRoles });
+
+    let files;
+    try {
+      files = syncInstructionFiles();
+    } catch (error) {
+      console.log(`Falha ao atualizar as instrucoes dos agentes: ${error.message}`);
+    }
+    if (socket?.connected) socket.emit('machine:roles-updated', { roles: config.agentRoles });
+    sendJson(res, 200, { roleAssignments, agentRoles: config.agentRoles, files });
+    broadcast();
+  });
+}
+
+function toggleYagni(req, res) {
+  config.yagniMode = !config.yagniMode;
+  saveConfig({ yagniMode: config.yagniMode });
+  sendJson(res, 200, { yagniMode: config.yagniMode });
+  broadcast();
+}
+
+function runSecurityAudit(rootPath) {
+  const root = rootPath || workspaceRoot;
+  if (!root || !existsSync(root)) return { error: 'Pasta do projeto nao encontrada' };
+
+  const findings = [];
+  function scan(dir, depth = 0) {
+    if (depth > 6) return;
+    let entries = [];
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (entry.name.startsWith('.') || entry.name === 'node_modules' || entry.name === 'dist') continue;
+      const fullPath = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        scan(fullPath, depth + 1);
+      } else if (/\.(ts|js|mjs|tsx|jsx)$/.test(entry.name)) {
+        try {
+          const content = readFileSync(fullPath, 'utf8');
+          const lines = content.split('\n');
+          for (let i = 0; i < lines.length; i++) {
+            const line = lines[i];
+            const lineNum = i + 1;
+            const relPath = path.relative(root, fullPath);
+
+            // 1. Isolamento multi-tenant: operacoes no prisma sem companyId no where
+            if (/\.(update|delete|findUnique)\s*\(/.test(line)) {
+              const snippet = lines.slice(i, i + 8).join(' ');
+              if (snippet.includes('where:') && /where:\s*\{\s*id\s*[\},]/.test(snippet) && !snippet.includes('companyId') && !snippet.includes('organizationId')) {
+                findings.push({
+                  type: 'multi-tenant',
+                  severity: 'high',
+                  file: relPath,
+                  line: lineNum,
+                  message: 'Consulta sem amarracao de companyId ou organizationId no where (risco de IDOR).',
+                });
+              }
+            }
+
+            // 2. Webhook sem comparacao timingSafeEqual
+            if (/signature|webhook.*secret|x-hub-signature/i.test(line) && (line.includes('===') || line.includes('==')) && !line.includes('timingSafeEqual')) {
+              findings.push({
+                type: 'auth-timing',
+                severity: 'medium',
+                file: relPath,
+                line: lineNum,
+                message: 'Comparacao de assinatura de webhook direta em vez de crypto.timingSafeEqual.',
+              });
+            }
+
+            // 3. Chave ou token exposto
+            if (/(api_key|secret_key|private_key|auth_token)\s*=\s*['"][a-zA-Z0-9_\-]{24,}['"]/i.test(line)) {
+              findings.push({
+                type: 'secret-leak',
+                severity: 'high',
+                file: relPath,
+                line: lineNum,
+                message: 'Possivel credencial ou chave estatica no codigo-fonte.',
+              });
+            }
+          }
+        } catch {}
+      }
+    }
+  }
+
+  scan(root);
+  return {
+    target: path.basename(root) || root,
+    attribution: 'Baseado na metodologia Cloudflare security-audit-skill',
+    status: findings.length === 0 ? 'clean' : 'warning',
+    findings: findings.slice(0, 30),
+    totalFindings: findings.length,
+    summary: findings.length === 0
+      ? 'Auditoria concluida: nenhuma falha evidente de isolamento ou vazamento de segredos.'
+      : `Auditoria concluida: ${findings.length} apontamento(s) para revisao de seguranca.`,
+  };
+}
+
+function runAuditEndpoint(req, res) {
+  readJsonBody(req, (data) => {
+    const targetDir = data?.projectPath ? projectDir(data.projectPath) : workspaceRoot;
+    const result = runSecurityAudit(targetDir);
+    sendJson(res, 200, result);
+  });
+}
+
+function installSkillEndpoint(req, res) {
+  readJsonBody(req, (data) => {
+    const skill = data?.skill || 'security-audit';
+    if (skill === 'security-audit') {
+      const destDir = path.join(workspaceRoot || process.cwd(), '.agents', 'skills', 'security-audit');
+      mkdirSync(destDir, { recursive: true });
+      const srcFile = path.join(os.homedir(), '.gemini', 'config', 'skills', 'security-audit', 'SKILL.md');
+      if (existsSync(srcFile)) {
+        copyFileSync(srcFile, path.join(destDir, 'SKILL.md'));
+      }
+      return sendJson(res, 200, { ok: true, path: path.join(destDir, 'SKILL.md') });
+    }
+    sendJson(res, 400, { error: 'Skill desconhecida' });
   });
 }
 
@@ -652,6 +890,9 @@ function widgetState() {
       ...config.agentProfiles[agent],
     })),
     roleCatalog: roleNames.map((role) => ({ role, name: roleCatalog[role][0], description: roleCatalog[role][1] })),
+    roleAssignments: config.roleAssignments || {},
+    harnessModelCatalog,
+    yagniMode: Boolean(config.yagniMode),
     logs,
   };
 }
@@ -975,7 +1216,12 @@ async function runTask(task) {
     return;
   }
 
-  task.model = config.models?.[task.agent] || task.suggestedModel || task.model || '';
+  let assignedModel = '';
+  if (task.role && config.roleAssignments?.[task.role]) {
+    const assign = config.roleAssignments[task.role];
+    if (assign.model && assign.model !== 'default') assignedModel = assign.model;
+  }
+  task.model = assignedModel || config.models?.[task.agent] || task.suggestedModel || task.model || '';
   console.log(`Rodando ${task.agent} em ${cwd} para a tarefa ${task.taskId}`);
   running[task.agent] = task;
   saveState();
@@ -1524,9 +1770,18 @@ const safetyNote = [
   '- Se o pedido depender disso, não execute e explique o motivo na resposta.',
 ].join('\n');
 
+const yagniNote = [
+  'Diretrizes de Economia de Tokens e Minimalismo:',
+  '- Faça edições cirúrgicas e objetivas. Nunca reescreva arquivos inteiros à toa.',
+  '- Não crie arquivos utilitários ou classes auxiliares para lógicas simples.',
+  '- Não adicione dependências externas se a biblioteca padrão ou o runtime resolver.',
+  '- Encerre a resposta com no máximo 2 ou 3 frases diretas sobre o que foi feito.',
+].join('\n');
+
 // Tarefa interrompida (cota ou client reiniciado) volta com o aviso e o último progresso
 function buildPrompt(task, cwd) {
-  const prompt = [taskPrompt(task, cwd), safetyNote, teamNote(task.agent), gitContext(cwd), fileLinkNote(cwd)].filter(Boolean).join('\n\n');
+  const yagni = config.yagniMode ? yagniNote : '';
+  const prompt = [taskPrompt(task, cwd), safetyNote, yagni, teamNote(task.agent), gitContext(cwd), fileLinkNote(cwd)].filter(Boolean).join('\n\n');
   if (!task.resumed) return prompt;
   return [
     prompt,
@@ -2205,6 +2460,22 @@ const widgetHtml = `<!doctype html>
         </div>
         <div id="prefsError" class="error" hidden></div>
 
+        <div class="label">Skills Recomendadas</div>
+        <div class="card list">
+          <label class="row">
+            <span class="row-text"><strong>Modo Econômico (YAGNI)</strong><span>Edições cirúrgicas e economia de tokens</span></span>
+            <span class="switch"><input id="yagniToggle" type="checkbox"></span>
+          </label>
+          <div class="row" style="flex-direction:column;align-items:stretch;gap:8px">
+            <span class="row-text"><strong>Auditoria de Segurança</strong><span>Baseado no Cloudflare security-audit-skill</span></span>
+            <div style="display:flex;gap:8px">
+              <button id="runAudit" class="ghost small" style="flex:1">Auditar Código Agora</button>
+              <button id="installSkill" class="ghost small" style="flex:1">Instalar no Projeto</button>
+            </div>
+            <div id="auditResult" class="notice" hidden style="font-size:11px;white-space:pre-wrap"></div>
+          </div>
+        </div>
+
         <div class="label">Máquina</div>
         <div class="card list">
           <button id="openChooser" class="row">
@@ -2363,7 +2634,7 @@ const widgetHtml = `<!doctype html>
 
   function openChooser() {
     overlay = 'chooser';
-    options.replaceChildren(...state.catalog.map(function (a) {
+    const agentItems = state.catalog.map(function (a) {
       const item = el('div');
       const label = el('label', 'option');
       const input = el('input', 'pick agent-check');
@@ -2387,7 +2658,7 @@ const widgetHtml = `<!doctype html>
         row.append(rowText(r.name, r.description), knob);
         return row;
       }));
-      // Apelido e avatar só mudam a apresentação, o agente continua o mesmo
+
       const profile = el('details', 'roles profile');
       profile.hidden = !a.enabled;
       const nickname = el('input', 'profile-input');
@@ -2406,7 +2677,6 @@ const widgetHtml = `<!doctype html>
       color.dataset.agent = a.agent;
       color.dataset.field = 'color';
       color.value = a.color || '#2563eb';
-      // Cor só vale depois que a pessoa escolhe uma
       if (a.color) color.dataset.touched = '1';
       color.oninput = function () { color.dataset.touched = '1'; };
       profile.append(el('summary', '', 'Apelido e avatar'), nickname, image, color);
@@ -2414,7 +2684,62 @@ const widgetHtml = `<!doctype html>
       input.onchange = function () { roles.hidden = !input.checked; profile.hidden = !input.checked; };
       item.append(label, roles, profile);
       return item;
-    }));
+    });
+
+    const rolesHeader = el('div', 'label', 'Subagentes por Papel (Seletores Estritos)');
+    rolesHeader.style.padding = '14px 14px 6px';
+    const rolesContainer = el('div', 'card list');
+    state.roleCatalog.forEach(function (r) {
+      const row = el('div', 'row role-assign-row');
+      row.dataset.role = r.role;
+      row.style.flexDirection = 'column';
+      row.style.alignItems = 'stretch';
+      row.style.gap = '6px';
+
+      const rowTop = el('div');
+      rowTop.style.display = 'flex';
+      rowTop.style.justifyContent = 'space-between';
+      rowTop.append(el('strong', '', r.name), el('span', 'tag', r.role));
+
+      const selects = el('div');
+      selects.style.display = 'flex';
+      selects.style.gap = '8px';
+
+      const currentAssign = state.roleAssignments?.[r.role] || { harness: 'claude', model: 'default' };
+
+      const harnessSelect = el('select', 'profile-input role-harness-select');
+      harnessSelect.style.flex = '1';
+      state.catalog.forEach(function (cat) {
+        if (cat.enabled || cat.detected) {
+          const opt = el('option', '', cat.name);
+          opt.value = cat.agent;
+          if (cat.agent === currentAssign.harness) opt.selected = true;
+          harnessSelect.append(opt);
+        }
+      });
+
+      const modelSelect = el('select', 'profile-input role-model-select');
+      modelSelect.style.flex = '1.4';
+
+      function updateModels(harness) {
+        modelSelect.replaceChildren();
+        const models = state.harnessModelCatalog?.[harness] || [{ id: 'default', label: 'Padrão' }];
+        models.forEach(function (m) {
+          const opt = el('option', '', m.label);
+          opt.value = m.id;
+          if (m.id === currentAssign.model) opt.selected = true;
+          modelSelect.append(opt);
+        });
+      }
+      updateModels(harnessSelect.value);
+      harnessSelect.onchange = function () { updateModels(harnessSelect.value); };
+
+      selects.append(harnessSelect, modelSelect);
+      row.append(rowTop, selects);
+      rolesContainer.append(row);
+    });
+
+    options.replaceChildren(...agentItems, rolesHeader, rolesContainer);
     show();
   }
 
@@ -2426,11 +2751,24 @@ const widgetHtml = `<!doctype html>
     }
     const profiles = {};
     for (const field of options.querySelectorAll('.profile-input')) {
+      if (field.tagName === 'SELECT') continue;
       profiles[field.dataset.agent] = profiles[field.dataset.agent] || {};
       if (field.type === 'color' && !field.dataset.touched) continue;
       profiles[field.dataset.agent][field.dataset.field] = field.value;
     }
-    const error = await postJson('/config/agents', { enabledAgents: checked }) || await postJson('/config/agent-roles', { roles: roles }) || await postJson('/config/agent-profiles', { profiles: profiles });
+
+    const assignments = {};
+    for (const row of options.querySelectorAll('.role-assign-row')) {
+      const role = row.dataset.role;
+      const harness = row.querySelector('.role-harness-select')?.value;
+      const model = row.querySelector('.role-model-select')?.value || 'default';
+      if (role && harness) assignments[role] = { harness: harness, model: model };
+    }
+
+    const error = await postJson('/config/agents', { enabledAgents: checked }) ||
+      await postJson('/config/agent-roles', { roles: roles }) ||
+      await postJson('/config/role-assignments', { assignments: assignments }) ||
+      await postJson('/config/agent-profiles', { profiles: profiles });
     if (error) return options.prepend(el('div', 'error', error));
     options.prepend(el('div', 'notice', 'Agentes e cargos salvos'));
     options.scrollTop = 0;
@@ -2532,6 +2870,8 @@ const widgetHtml = `<!doctype html>
     document.getElementById('agentsSummary').textContent = data.agents.map(function (a) { return a.name; }).join(', ') || 'Nenhum agente ativo';
     document.getElementById('autostart').checked = data.autostart;
     document.getElementById('alerts').checked = data.alertsOn;
+    const yagniEl = document.getElementById('yagniToggle');
+    if (yagniEl) yagniEl.checked = Boolean(data.yagniMode);
     document.getElementById('quit').disabled = data.busy;
     connect.disabled = data.authPending;
     connect.textContent = data.authPending ? 'Aguardando login no navegador...' : 'Conectar com DeskReport';
@@ -2560,6 +2900,52 @@ const widgetHtml = `<!doctype html>
     events.close();
     document.getElementById('app').replaceChildren(el('div', 'hero', 'DeskReport encerrado. Pode fechar esta janela.'));
     window.close();
+  }
+
+  const yagniToggle = document.getElementById('yagniToggle');
+  if (yagniToggle) {
+    yagniToggle.onchange = async function () {
+      await postJson('/skills/toggle-yagni', {});
+    };
+  }
+
+  const runAudit = document.getElementById('runAudit');
+  const auditResult = document.getElementById('auditResult');
+  if (runAudit) {
+    runAudit.onclick = async function () {
+      runAudit.disabled = true;
+      runAudit.textContent = 'Auditando...';
+      try {
+        const res = await fetch('/skills/audit', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+        const data = await res.json();
+        auditResult.hidden = false;
+        auditResult.textContent = data.summary + (data.findings?.length ? '\n' + data.findings.map(function (f) { return '• [' + f.file + ':' + f.line + '] ' + f.message; }).join('\n') : '');
+      } catch (e) {
+        auditResult.hidden = false;
+        auditResult.textContent = 'Erro ao executar auditoria: ' + e.message;
+      }
+      runAudit.disabled = false;
+      runAudit.textContent = 'Auditar Código Agora';
+    };
+  }
+
+  const installSkill = document.getElementById('installSkill');
+  if (installSkill) {
+    installSkill.onclick = async function () {
+      installSkill.disabled = true;
+      installSkill.textContent = 'Instalando...';
+      try {
+        const res = await fetch('/skills/install', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ skill: 'security-audit' }) });
+        const data = await res.json();
+        auditResult.hidden = false;
+        auditResult.textContent = data.ok ? 'Skill instalada com sucesso em .agents/skills/security-audit/SKILL.md' : (data.error || 'Falha ao instalar');
+      } catch (e) {
+        auditResult.hidden = false;
+        auditResult.textContent = 'Erro ao instalar: ' + e.message;
+      }
+      installSkill.disabled = false;
+      installSkill.textContent = 'Instalar no Projeto';
+    };
   }
 
   for (const button of document.querySelectorAll('nav button')) button.onclick = function () { openTab(button.dataset.tab); };

@@ -5,6 +5,20 @@ O formato baseia-se no [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0
 
 ---
 
+## [1.2.0] - 2026-11-09
+
+### Novidades
+- **Papéis Desacoplados de Harness:** Agora qualquer harness instalado pode assumir múltiplos papéis na esteira usando perfis e modelos de subagentes diferentes (exemplo: Claude Code usando Haiku para documentação e QA, e Sonnet para engenharia e review).
+- **Catálogo Estrito de Modelos:** Eliminação total de campos abertos de digitação manual de modelos, prevenindo erros de digitação e travamento de cotas.
+- **Catálogo de Skills Recomendadas no Widget:** Seção dedicada com ativação em um clique da Auditoria de Segurança (baseada na Cloudflare) e do Modo Econômico (YAGNI).
+- **Auditoria de Segurança Local:** Scanner estático próprio embutido no client que analisa queries multi-tenant (anti-IDOR), webhooks com timingSafeEqual e vazamento de segredos em modo somente leitura.
+- **Onboarding Guiado no Terminal:** Assistente interativo no comando setup com menus numéricos e presets recomendados.
+
+### Segurança
+- **Validação de Limites de Confiança:** Verificação de isolamento multi-tenant contra IDOR e comparação de assinaturas de webhook em tempo constante com timingSafeEqual.
+
+---
+
 ## [1.1.0] - 2026-11-09
 
 ### Novidades
