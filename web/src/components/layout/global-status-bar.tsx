@@ -1,8 +1,11 @@
 import { useState } from 'react';
-import { Activity, X } from 'lucide-react';
+import { Activity, Sparkles, X } from 'lucide-react';
 import { AgentStatus, agentProfile, executionPlace, useAgentsStore } from '../../pages/tasks/use-agents';
+import { LATEST_VERSION } from '../../data/changelog';
+import { ChangelogDrawer } from '../changelog/changelog-drawer';
 
 const STORAGE_KEY = 'deskreport_statusbar_visible';
+const SEEN_VERSION_KEY = 'deskreport_last_seen_version';
 
 function formatTokens(n: number) {
   if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M';
@@ -21,7 +24,17 @@ function dotColor(agent: AgentStatus) {
 export function GlobalStatusBar() {
   const agents = useAgentsStore((state) => state.agents);
   const [visible, setVisible] = useState(localStorage.getItem(STORAGE_KEY) !== 'false');
+  const [changelogOpen, setChangelogOpen] = useState(false);
+  const [lastSeenVersion, setLastSeenVersion] = useState(localStorage.getItem(SEEN_VERSION_KEY) || '');
   const machines = agents.map((agent) => agent.machineName).filter((name, i, list) => name && list.indexOf(name) === i);
+
+  const hasUnread = lastSeenVersion !== LATEST_VERSION;
+
+  function openChangelog() {
+    localStorage.setItem(SEEN_VERSION_KEY, LATEST_VERSION);
+    setLastSeenVersion(LATEST_VERSION);
+    setChangelogOpen(true);
+  }
 
   function toggle(value: boolean) {
     localStorage.setItem(STORAGE_KEY, String(value));
@@ -61,9 +74,23 @@ export function GlobalStatusBar() {
         ))}
       </div>
 
-      <button onClick={() => toggle(false)} className='text-zinc-500 hover:text-zinc-200' title='Ocultar barra de status'>
-        <X size={13} />
-      </button>
+      <div className='flex items-center gap-3 shrink-0'>
+        <button
+          onClick={openChangelog}
+          className='flex items-center gap-1.5 px-2 py-0.5 rounded bg-zinc-900 border border-zinc-800 hover:border-zinc-700 text-zinc-300 hover:text-white transition-colors text-[10px]'
+          title='Ver novidades e notas de versão'
+        >
+          <Sparkles size={11} className='text-blue-400' />
+          <span>v{LATEST_VERSION}</span>
+          {hasUnread && <span className='w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse' />}
+        </button>
+
+        <button onClick={() => toggle(false)} className='text-zinc-500 hover:text-zinc-200' title='Ocultar barra de status'>
+          <X size={13} />
+        </button>
+      </div>
+
+      <ChangelogDrawer isOpen={changelogOpen} onClose={() => setChangelogOpen(false)} />
     </footer>
   );
 }
