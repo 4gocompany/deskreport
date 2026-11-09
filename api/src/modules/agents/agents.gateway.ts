@@ -26,11 +26,14 @@ export class AgentsGateway implements OnGatewayConnection {
     try {
       const machineToken = client.handshake.auth?.machineToken;
       if (machineToken) {
-        const organizationId = await this.agentsService.findOrgByMachineToken(machineToken);
-        if (!organizationId) return client.disconnect(true);
+        const machine = await this.agentsService.findMachineByToken(machineToken);
+        if (!machine) return client.disconnect(true);
 
-        client.data = { kind: 'machine', organizationId, agents: client.handshake.auth?.agents };
+        const { organizationId, machineId, machineName } = machine;
+        client.data = { kind: 'machine', organizationId, machineId, machineName, agents: client.handshake.auth?.agents };
         client.join(machineRoom(organizationId));
+        // O runner guarda o próprio id para ignorar tarefas presas a outra máquina
+        if (machineId) client.emit('machine:identity', { machineId, machineName });
         await this.syncAgents(organizationId);
         return;
       }
@@ -93,8 +96,9 @@ export class AgentsGateway implements OnGatewayConnection {
   telemetry(@ConnectedSocket() client: Socket, @MessageBody() data: any) {
     if (client.data?.kind !== 'machine') return;
 
-    const organizationId = client.data.organizationId;
-    const status = this.agentsService.saveStatus(organizationId, data);
+    // A máquina vem da chave autenticada, nunca do payload. O nome do runner só vale sem cadastro (chave de dev)
+    const { organizationId, machineId, machineName } = client.data;
+    const status = this.agentsService.saveStatus(organizationId, { ...data, machineId, machineName: machineName || data?.machineName });
     if (status) this.server.to(uiRoom(organizationId)).emit('agent:status', status);
   }
 

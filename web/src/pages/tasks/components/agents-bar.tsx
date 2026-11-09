@@ -1,4 +1,4 @@
-import { agentProfile, useAgentsStore } from '../use-agents';
+import { agentProfile, executionPlace, useAgentsStore } from '../use-agents';
 
 export function AgentsBar() {
   const agents = useAgentsStore((state) => state.agents);
@@ -10,6 +10,7 @@ export function AgentsBar() {
         return (
           <div
             key={agent.agent}
+            title={executionPlace(agent)}
             className={`flex items-center gap-2 px-2.5 py-1 rounded-full border text-[11px] whitespace-nowrap ${
               working
                 ? 'border-blue-200 dark:border-blue-500/30 bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-300'

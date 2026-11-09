@@ -174,13 +174,27 @@ function readJson(file) {
 function connectSocket() {
   syncMcpConfig(enabledAgents);
   socket?.disconnect();
-  // auth como função para cada reconexão levar a lista de agentes atual
-  socket = io(config.apiUrl, { auth: (cb) => cb({ machineToken: config.machineToken, agents: enabledAgents }), transports: ['websocket'] });
+  // auth como função para cada reconexão levar a lista de agentes atual e pastas
+  socket = io(config.apiUrl, {
+    auth: (cb) => cb({
+      machineToken: config.machineToken,
+      agents: enabledAgents,
+      folders: workspaceFolders(),
+      machineName: os.hostname(),
+      workspaceRoot: workspaceRoot || '',
+    }),
+    transports: ['websocket'],
+  });
 
   socket.on('connect', () => {
     console.log(`Conectado em ${config.apiUrl}`);
     socket.emit('machine:roles-updated', { roles: config.agentRoles });
     socket.emit('machine:profiles-updated', { profiles: config.agentProfiles });
+    socket.emit('machine:folders', {
+      folders: workspaceFolders(),
+      machineName: os.hostname(),
+      workspaceRoot: workspaceRoot || '',
+    });
     broadcast();
     // Retoma a fila salva e reenvia o alerta de quem continua travado
     for (const agent of agentNames) startNext(agent);
@@ -197,6 +211,7 @@ function connectSocket() {
   socket.on('agent:quota-continue', (data) => continueAgent(data?.agent));
   socket.on('agent:stop-task', stopTask);
   socket.on('machine:classify-task', classifyTask);
+  socket.on('machine:identity', (data) => { config.machineId = data?.machineId; });
 }
 
 // Resolve false quando a porta já está em uso, ou seja, outro DeskReport já está rodando
@@ -653,6 +668,9 @@ function sendTelemetry(status) {
   const task = running[status?.agent];
   const data = {
     ...status,
+    machineName: os.hostname(),
+    machineId: config.machineId,
+    workspace: task?.projectPath || status?.project || (workspaceRoot ? path.basename(workspaceRoot) : undefined),
     model: status?.model || task?.model || config.models?.[status?.agent] || config.models?.[task?.agent] || undefined,
     alert: alert?.message,
     quotaLevel: alert?.level,
@@ -730,6 +748,17 @@ function finish(task, exitCode, summary, touchedFiles = [], stopped = false) {
 function enqueueTask(task) {
   // Outra máquina da organização pode ter esse agente, aqui ele fica de fora
   if (!enabledAgents.includes(task.agent)) return;
+  // Se a tarefa destina-se a uma máquina específica e não é esta, ignora
+  if (task.machineId && config.machineId && task.machineId !== config.machineId) return;
+
+  const folder = task.projectPath || task.project;
+  // Se a tarefa pertence a um projeto e a pasta não existe neste workspace,
+  // outra máquina da organização é quem cuida desse projeto. Esta máquina ignora silenciosamente.
+  if (folder && !projectDir(folder)) {
+    console.log(`[Workspace] Ignorando tarefa ${task.taskId}: pasta "${folder}" não existe em ${workspaceRoot}`);
+    return;
+  }
+
   const problem = quotaProblem(task.agent);
   if (running[task.agent] || problem) {
     queues[task.agent] = queues[task.agent] || [];
@@ -937,11 +966,12 @@ async function runTask(task) {
 
   if (!agentLabels[task.agent]) return;
   if (!workspaceRoot) {
-    finish(task, 1, 'Nenhuma pasta de Workspace escolhida no widget do DeskReport');
+    console.log(`[Workspace] Nenhuma pasta de Workspace configurada. Ignorando tarefa ${task.taskId}`);
     return;
   }
   if (!cwd) {
-    finish(task, 1, `Pasta ${folder} não existe dentro de ${workspaceRoot}`);
+    // Não falha a tarefa no servidor: outra máquina da organização pode ser a dona deste projeto
+    console.log(`[Workspace] Ignorando tarefa ${task.taskId}: pasta "${folder}" não existe dentro de ${workspaceRoot}`);
     return;
   }
 
@@ -1220,12 +1250,16 @@ function agentEnv() {
 function startAgent(agent, prompt, cwd, env = {}, stream = false, session, suggestedModel) {
   const [bin, args] = agentCommand(agent, prompt, cwd, stream, session, suggestedModel);
   const windows = process.platform === 'win32';
+  const opencodeConfig = {
+    permission: { external_directory: 'deny' },
+    mcp: { deskreport: mcpEntry('opencode') },
+  };
 
   // No Windows os agentes instalados pelo npm são .cmd e só rodam pelo shell, então cada argumento vai entre aspas
   const child = spawn(bin, windows ? args.map(windowsArg) : args, {
     cwd,
     shell: windows,
-    env: { ...agentEnv(), ...env, PATH: agentPath(), OPENCODE_CONFIG_CONTENT: JSON.stringify({ permission: { external_directory: 'deny' } }) },
+    env: { ...agentEnv(), ...env, PATH: agentPath(), OPENCODE_CONFIG_CONTENT: JSON.stringify(opencodeConfig) },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   return [bin, child];

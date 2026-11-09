@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Activity, X } from 'lucide-react';
-import { AgentStatus, agentProfile, useAgentsStore } from '../../pages/tasks/use-agents';
+import { AgentStatus, agentProfile, executionPlace, useAgentsStore } from '../../pages/tasks/use-agents';
 
 const STORAGE_KEY = 'deskreport_statusbar_visible';
 
@@ -21,6 +21,7 @@ function dotColor(agent: AgentStatus) {
 export function GlobalStatusBar() {
   const agents = useAgentsStore((state) => state.agents);
   const [visible, setVisible] = useState(localStorage.getItem(STORAGE_KEY) !== 'false');
+  const machines = agents.map((agent) => agent.machineName).filter((name, i, list) => name && list.indexOf(name) === i);
 
   function toggle(value: boolean) {
     localStorage.setItem(STORAGE_KEY, String(value));
@@ -43,14 +44,15 @@ export function GlobalStatusBar() {
     <footer className='h-8 shrink-0 bg-zinc-950 border-t border-zinc-800 flex items-center gap-5 px-4 text-[11px] font-mono text-zinc-400 z-30'>
       <span className='flex items-center gap-1.5 whitespace-nowrap'>
         <span className={`w-1.5 h-1.5 rounded-full ${agents.length > 0 ? 'bg-emerald-500' : 'bg-zinc-600'}`} />
-        {agents.length > 0 ? 'Máquina conectada' : 'Nenhuma máquina'}
+        {machines.length > 0 ? machines.join(' · ') : agents.length > 0 ? 'Máquina conectada' : 'Nenhuma máquina'}
       </span>
 
       <div className='flex-1 flex items-center gap-5 overflow-x-auto min-w-0'>
         {agents.map((agent) => (
-          <span key={agent.agent} className='flex items-center gap-1.5 whitespace-nowrap' title={agent.alert || agent.action}>
+          <span key={agent.agent} className='flex items-center gap-1.5 whitespace-nowrap' title={agent.alert || executionPlace(agent) || agent.action}>
             <span className={`w-1.5 h-1.5 rounded-full ${dotColor(agent)}`} />
             <span className='text-zinc-200'>{agentProfile(agent.agent).name}</span>
+            {agent.workspace && <span className='text-zinc-500'>{agent.workspace}</span>}
             {agent.quotaUsed != null && (
               <span className={agent.quotaUsed >= 60 ? 'text-amber-400' : ''}>{agent.quotaUsed}% cota usada</span>
             )}

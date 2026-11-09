@@ -1,7 +1,7 @@
 import { PRIORITY_CONFIG, TaskCardProps } from '../tasks-data';
 import { useDraggable } from '@dnd-kit/react';
 import { MessageCircleQuestion } from 'lucide-react';
-import { agentProfile, findTaskAgent, useAgentsStore } from '../use-agents';
+import { agentProfile, executionPlace, findTaskAgent, useAgentsStore } from '../use-agents';
 import { activeStep, taskSteps } from '../task-pipeline';
 import { TokenMeter } from './token-meter';
 
@@ -59,10 +59,16 @@ export function TaskCard({ task, projectName, onClick }: TaskCardComponentProps)
       </h4>
 
       {agent && (
-        <div className='flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-blue-50 dark:bg-blue-500/10 text-xs text-blue-700 dark:text-blue-300 mb-2'>
+        <div
+          className='flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-blue-50 dark:bg-blue-500/10 text-xs text-blue-700 dark:text-blue-300 mb-2'
+          title={executionPlace(agent)}
+        >
           <span className='w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse shrink-0' />
           <span className='font-semibold shrink-0'>{agentProfile(agent.agent).name}</span>
           <span className='truncate'>{agent.file || agent.action}</span>
+          {executionPlace(agent) && (
+            <span className='truncate text-[10px] text-blue-600/70 dark:text-blue-300/70'>{executionPlace(agent)}</span>
+          )}
           {agent.model && (
             <span className='ml-auto shrink-0 rounded bg-zinc-200/80 dark:bg-zinc-700/80 px-1.5 py-0.5 text-[10px] font-medium text-zinc-600 dark:text-zinc-300'>
               {agent.model}

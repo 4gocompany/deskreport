@@ -36,6 +36,10 @@ export type AgentStatus = {
   tool?: string;
   file?: string;
   taskId?: string;
+  // Máquina onde o agente está conectado e a pasta em que ele executa. Runner antigo não envia
+  machineName?: string;
+  machineId?: string;
+  workspace?: string;
   // Tokens gastos na execução atual da tarefa (só o Claude Code informa)
   tokens?: number;
   // Modelo em uso na execução, quando a máquina informa
@@ -194,19 +198,25 @@ export class AgentsService {
 
   // Devolve a organização dona da chave, ou null quando a chave não vale
   async findOrgByMachineToken(token: unknown) {
+    const machine = await this.findMachineByToken(token);
+    return machine?.organizationId ?? null;
+  }
+
+  // Máquina dona da chave. A chave de desenvolvimento não tem máquina cadastrada, então vem sem id e nome
+  async findMachineByToken(token: unknown) {
     if (typeof token !== 'string' || !token.startsWith('drk_')) return null;
 
     const devToken = process.env.DESKREPORT_DEV_TOKEN;
     if (devToken && token === devToken && process.env.NODE_ENV !== 'production') {
       const org = await this.prisma.organization.findFirst({ orderBy: { createdAt: 'asc' } });
-      return org?.id ?? null;
+      return org ? { organizationId: org.id, machineId: undefined, machineName: undefined } : null;
     }
 
     const machine = await this.prisma.agentMachine.findUnique({ where: { tokenHash: hashToken(token) } });
     if (!machine) return null;
 
     await this.prisma.agentMachine.update({ where: { id: machine.id }, data: { lastSeenAt: new Date() } });
-    return machine.organizationId;
+    return { organizationId: machine.organizationId, machineId: machine.id, machineName: machine.name };
   }
 
   // Guarda os cargos que a máquina configurou para cada agente, só aceita agentes e cargos conhecidos
@@ -282,6 +292,9 @@ export class AgentsService {
       tool: text(data.tool, 60),
       file: text(data.file),
       taskId: text(data.taskId, 60),
+      machineName: text(data.machineName, 100) || previous?.machineName,
+      machineId: text(data.machineId, 60) || previous?.machineId,
+      workspace: text(data.workspace, 200) || previous?.workspace,
       tokens: positive(data.tokens) || previous?.tokens,
       model: text(data.model, 120) || previous?.model,
       quotaUsed: quotaValid ? quotaUsed : undefined,

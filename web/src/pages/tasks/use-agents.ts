@@ -16,6 +16,10 @@ export type AgentStatus = {
   tool?: string;
   file?: string;
   taskId?: string;
+  // Máquina onde o agente está conectado e a pasta em que ele executa. Runner antigo não envia
+  machineName?: string;
+  machineId?: string;
+  workspace?: string;
   // Tokens gastos na execução atual (só o Claude Code informa)
   tokens?: number;
   model?: string;
@@ -246,6 +250,11 @@ export function useAgentsSocket(organizationId: string) {
 function notifyBrowser(message: string) {
   if (!('Notification' in window) || Notification.permission !== 'granted') return;
   new Notification('DeskReport', { body: message, requireInteraction: true });
+}
+
+// Máquina e pasta onde o agente executa, por exemplo "notebook-rodrigo · /projetos/omniplug"
+export function executionPlace(agent: AgentStatus) {
+  return [agent.machineName, agent.workspace].filter(Boolean).join(' · ');
 }
 
 export function findTaskAgent(agents: AgentStatus[], task: TaskCardProps, projectName: string) {

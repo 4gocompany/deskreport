@@ -179,6 +179,13 @@ describe('AgentsService', () => {
     expect(status).toMatchObject({ state: 'paused', alert: 'Alerta de Cota' });
   });
 
+  it('guarda máquina e pasta e mantém ao voltar para ocioso sem elas', async () => {
+    service.saveStatus('org-1', { agent: 'claude', state: 'working', machineId: 'm-1', machineName: 'Workstation', workspace: 'omniplug' });
+    const idle = service.saveStatus('org-1', { agent: 'claude', state: 'idle' });
+    expect(idle).toMatchObject({ machineId: 'm-1', machineName: 'Workstation', workspace: 'omniplug' });
+    expect(service.saveStatus('org-2', { agent: 'claude', state: 'idle' })?.machineId).toBeUndefined();
+  });
+
   it('parada pelo usuário volta a task para A fazer e soma os tokens', async () => {
     prisma.task.findFirst.mockResolvedValue({ id: 't-1', reporterId: 'u-1', status: 'in-progress' });
 
