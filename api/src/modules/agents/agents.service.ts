@@ -164,6 +164,13 @@ export class AgentsService {
     return agentNames.filter((agent) => userIds.includes(agentUsers[agent].id));
   }
 
+  // Primeiro agente habilitado que alguma máquina da organização configurou com o cargo
+  async agentForRole(organizationId: string, role: string) {
+    const machines = await this.prisma.agentMachine.findMany({ where: { organizationId }, select: { agentRoles: true } });
+    const enabled = await this.enabledAgents(organizationId);
+    return enabled.find((agent) => machines.some((machine) => (machine.agentRoles as any)?.[agent]?.includes(role)));
+  }
+
   listMachines(organizationId: string) {
     return this.prisma.agentMachine.findMany({
       where: { organizationId },
@@ -445,6 +452,8 @@ export class AgentsService {
       agent,
       projectPath,
       mode,
+      // Etapa pedida pela esteira. Hoje só o QA, que o runner não adivinha pelo cargo quando o mesmo agente revisa
+      stage: data?.stage === 'qa' ? 'qa' : undefined,
       // Micro-Router: o client usa o modelo sugerido quando a máquina não fixou um modelo para o agente
       complexity: task.complexity,
       // O tipo define a skill injetada no prompt do agente

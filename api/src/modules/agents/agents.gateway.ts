@@ -252,6 +252,14 @@ export class AgentsGateway implements OnGatewayConnection {
   // Sem menção, a implementação segue para a revisão do Antigravity quando a organização usa esse agente
   async nextStage(organizationId: string, taskId: string, data: any) {
     const text = typeof data.comment === 'string' && data.comment ? data.comment : typeof data.summary === 'string' ? data.summary : '';
+    // Revisão aprovada passa para o agente com cargo de QA, mesmo que seja o próprio revisor
+    if (data.stage === 'review' && approved(text)) {
+      const qaAgent = await this.agentsService.agentForRole(organizationId, 'qa');
+      if (qaAgent && this.countAutoRun(taskId)) {
+        const result = await this.dispatchTask(organizationId, taskId, { agent: qaAgent, stage: 'qa', comment: text, auto: true }).catch(() => null);
+        if (result) return;
+      }
+    }
     const mentioned = await this.dispatchMentions(organizationId, taskId, text, data.agent);
     // Conta também quem o agente já acionou por comentário durante a etapa
     const handedOff = mentioned.length > 0 || (this.handoffs[`${taskId}:${data.agent}`] || []).length > 0;
@@ -312,6 +320,11 @@ export class AgentsGateway implements OnGatewayConnection {
   emitTask(organizationId: string, event: 'task:created' | 'task:updated', task: unknown) {
     this.server.to(uiRoom(organizationId)).emit(event, task);
   }
+}
+
+// Parecer que aprova e não reprova nem nega a aprovação
+function approved(text: string) {
+  return /\baprovad[oa]\b/i.test(text) && !/reprovad|n[aã]o\s+(est[aá]\s+)?aprovad/i.test(text);
 }
 
 // Spec, implementação, revisão, correção, nova revisão e commit/deploy cabem com folga

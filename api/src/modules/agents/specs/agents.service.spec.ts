@@ -80,6 +80,23 @@ describe('AgentsService', () => {
     expect(result.task).toEqual({ id: 't-1' });
   });
 
+  it('manda a etapa qa no despacho e ignora outras etapas', async () => {
+    prisma.task.findFirst.mockResolvedValue({ id: 't-1', status: 'in-progress', assignees: [], comments: [] });
+    prisma.task.update.mockResolvedValue({ id: 't-1' });
+
+    expect((await service.startDispatch('t-1', 'org-1', { agent: 'antigravity', projectPath: 'api', stage: 'qa' })).stage).toBe('qa');
+    expect((await service.startDispatch('t-1', 'org-1', { agent: 'antigravity', projectPath: 'api', stage: 'review' })).stage).toBeUndefined();
+  });
+
+  it('acha o agente habilitado com o cargo nas máquinas da organização', async () => {
+    prisma.member.findMany.mockResolvedValue([{ userId: 'agent-user-claude' }, { userId: 'agent-user-antigravity' }]);
+    prisma.agentMachine.findMany.mockResolvedValue([{ agentRoles: { claude: ['engineering'], antigravity: ['review', 'qa'] } }]);
+
+    expect(await service.agentForRole('org-1', 'qa')).toBe('antigravity');
+    expect(await service.agentForRole('org-1', 'support')).toBeUndefined();
+    expect(prisma.agentMachine.findMany.mock.calls[0][0].where.organizationId).toBe('org-1');
+  });
+
   it('sem agent e sem pasta usa o agente responsável e a pasta do projeto da tarefa', async () => {
     prisma.task.findFirst.mockResolvedValue({ id: 't-1', project: 'p-1', status: 'todo', assignees: [{ id: 'u-1' }, { id: 'agent-user-opencode' }], comments: [] });
     prisma.project.findFirst.mockResolvedValue({ folder: 'deskreport.com.br' });
