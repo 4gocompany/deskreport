@@ -1378,7 +1378,8 @@ async function runTask(task) {
   const timer = setTimeout(() => stop(`Passou de ${TASK_TIMEOUT_MS / 60_000} min sem terminar`), TASK_TIMEOUT_MS);
 
   function show(text) {
-    output = (output + text).slice(-4000);
+    // Cabe a resposta final inteira (spec de até 30.000 caracteres mais COMMENT e CHANGELOG). Com 4.000 o marcador SPEC: ficava de fora
+    output = (output + text).slice(-60000);
     sendOutput(text);
     const lines = text.split('\n').map((line) => line.trim()).filter(Boolean);
     for (const line of lines.slice(-3)) {
