@@ -13,6 +13,10 @@ model Task {
   title       String
   project     String
   description String?
+  // Descrição de antes da spec do agente, e quem editou e quando
+  descriptionPrevious String?   @map("description_previous")
+  specEditedBy        String?   @map("spec_edited_by")
+  specEditedAt        DateTime? @map("spec_edited_at")
   reporterId  String?   @map("reporter_id")
   assignees   User[]    @relation("task_assignees")
   teamId      String?   @map("team_id")

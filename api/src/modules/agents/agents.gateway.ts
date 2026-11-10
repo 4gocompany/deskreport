@@ -251,10 +251,10 @@ export class AgentsGateway implements OnGatewayConnection {
   // Esteira automática: quem terminou passa a vez para os agentes que mencionou com @ no resumo.
   // Sem menção, a implementação segue para a revisão do Antigravity quando a organização usa esse agente
   async nextStage(organizationId: string, taskId: string, data: any) {
-    const summary = typeof data.summary === 'string' ? data.summary : '';
-    await this.dispatchMentions(organizationId, taskId, summary, data.agent);
+    const text = typeof data.comment === 'string' && data.comment ? data.comment : typeof data.summary === 'string' ? data.summary : '';
+    const mentioned = await this.dispatchMentions(organizationId, taskId, text, data.agent);
     // Conta também quem o agente já acionou por comentário durante a etapa
-    const handedOff = (this.handoffs[`${taskId}:${data.agent}`] || []).length > 0;
+    const handedOff = mentioned.length > 0 || (this.handoffs[`${taskId}:${data.agent}`] || []).length > 0;
     // Etapa pedida por outro agente segue só por menção, senão o commit do DevOps voltaria para a revisão
     if (handedOff || data.handoff || data.agent === 'antigravity' || data.mode === 'comment') return;
 
@@ -280,10 +280,12 @@ export class AgentsGateway implements OnGatewayConnection {
     const dispatched = [];
     for (const agent of agents) {
       if (!this.countAutoRun(taskId)) break;
+      // Registra antes de acionar, para dois eventos seguidos não acionarem o mesmo agente
+      this.handoffs[key] = [...(this.handoffs[key] || []), agent];
       const result = await this.dispatchTask(organizationId, taskId, { agent, comment: content, projectPath, auto: true }).catch(() => null);
       if (result) dispatched.push(result);
+      else this.handoffs[key] = this.handoffs[key].filter((name) => name !== agent);
     }
-    this.handoffs[key] = [...already, ...dispatched.map((result) => result.agent)];
     return dispatched;
   }
 

@@ -435,6 +435,8 @@ export class AgentsService {
       taskId: task.id,
       title: task.title,
       description: task.description,
+      // O runner usa o status para saber se o revisor revisa ou escreve a spec
+      status: task.status,
       // Só os comentários mais recentes. O histórico completo fica no deskreport_get_task
       comments: task.comments.slice(-5).map((c) => `${c.user?.name || 'Membro'}: ${c.content}`),
       project: task.project,
@@ -853,6 +855,15 @@ export class AgentsService {
       });
     }
 
+    // Spec do agente substitui a descrição e guarda a anterior
+    const spec = data.stage === 'spec' && data.exitCode === 0 && !data.stopped ? text(data.spec, 30000)?.trim() : '';
+    if (spec && agentUser) {
+      await this.prisma.task.update({
+        where: { id: task.id, companyId: organizationId },
+        data: { description: toHtml(spec), descriptionPrevious: task.description, specEditedBy: data.agent, specEditedAt: new Date() },
+      });
+    }
+
     const userId = agentUser?.id || task.reporterId || (await this.prisma.member.findFirst({
       where: { organizationId },
       orderBy: { createdAt: 'asc' },
@@ -986,18 +997,25 @@ function formatChangelog(files: string[]): string {
   return `<p><strong>Changelog de arquivos:</strong></p><ul>${list.join('')}</ul>`;
 }
 
+const stageTitles: Record<string, string> = {
+  spec: 'Spec concluída.',
+  implement: 'Implementação concluída.',
+  review: 'Revisão concluída.',
+  qa: 'QA concluído.',
+};
+
 // O comentário é exibido como HTML no painel, então tudo que vem do agente é escapado
 function finishedComment(data: any) {
   let result = data.stopped ? 'Execução parada pelo usuário.' : '';
-  if (data.exitCode === 0 && data.agent === 'antigravity') {
-    result = 'Revisão de código concluída.';
-  }
+  if (data.exitCode === 0 && stageTitles[data.stage]) result = stageTitles[data.stage];
   const summary = cleanSummary(text(data.summary, 4000));
+  const changelog = text(data.changelog, 4000)?.trim();
   const files = Array.isArray(data.touchedFiles) ? data.touchedFiles.slice(0, 50).map((file: unknown) => text(file) || '') : [];
 
   let html = '';
   if (result) html += `<p>${result}</p>`;
   if (summary) html += `<p>${escapeHtml(summary).replace(/\n/g, '<br>')}</p>`;
+  if (changelog) html += `<p><strong>O que mudou:</strong><br>${escapeHtml(changelog).replace(/\n/g, '<br>')}</p>`;
   if (files.length > 0) {
     html += formatChangelog(files);
   }
