@@ -412,6 +412,11 @@ export class AgentsService {
     if (!task) throw new NotFoundException('Task not found');
     // Orçamento esgotado para a esteira automática. Acionamento por uma pessoa continua liberado
     if (data?.auto && task.tokensUsed >= task.tokenBudget) {
+      // Sem o aviso a esteira parava em silêncio e a tarefa ficava esperando um agente que nunca vinha
+      if (agentNames.includes(data?.agent)) {
+        const content = `Não fui acionado: o orçamento de tokens da tarefa acabou (${task.tokensUsed} de ${task.tokenBudget}). Para seguir, acione pelo painel.`;
+        await this.commentTask(organizationId, task.id, { agent: data.agent, content });
+      }
       throw new BadRequestException('Orçamento de tokens da tarefa esgotado');
     }
 
