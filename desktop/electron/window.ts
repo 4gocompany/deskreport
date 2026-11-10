@@ -10,6 +10,7 @@ const REOPEN_BLOCK_MS = 300;
 
 let widget: BrowserWindow | null = null;
 let hiddenByBlurAt = 0;
+let loaded = false;
 
 export function createWidget() {
   widget = new BrowserWindow({
@@ -39,7 +40,19 @@ export function createWidget() {
   widget.webContents.on('will-navigate', (event: Electron.Event, url: string) => {
     if (!url.startsWith(WIDGET_ORIGIN)) event.preventDefault();
   });
-  widget.loadURL(WIDGET_URL).catch((error: Error) => console.error('Daemon local indisponível:', error.message));
+  // O daemon pode estar subindo junto com o app: sem resposta, tenta de novo a cada 2s
+  widget.webContents.on('did-finish-load', () => (loaded = true));
+  widget.webContents.on('did-fail-load', (_event: Electron.Event, code: number, _description: string, _url: string, isMainFrame: boolean) => {
+    // -3 é navegação cancelada por outro carregamento, não falta de daemon
+    if (!isMainFrame || code === -3) return;
+    loaded = false;
+    setTimeout(loadWidget, 2000);
+  });
+  loadWidget();
+}
+
+function loadWidget() {
+  widget?.loadURL(WIDGET_URL).catch(() => {});
 }
 
 export function toggleWidget(trayBounds: Rect) {
@@ -55,6 +68,7 @@ export function openWidget(trayBounds: Rect) {
   const area = screen.getDisplayNearestPoint(center).workArea;
   const { x, y } = widgetPosition(trayBounds, { width: WIDGET_WIDTH, height: WIDGET_HEIGHT }, area);
   widget.setPosition(x, y);
+  if (!loaded) loadWidget();
   widget.show();
   widget.focus();
 }
