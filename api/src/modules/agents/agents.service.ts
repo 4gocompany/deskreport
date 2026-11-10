@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import { createHash, randomBytes } from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { applySanityCheck, classifyTask, complexities, routing } from '../tasks/complexity';
+import { taskTypes } from '../tasks/task-types';
 
 export const agentNames = ['antigravity', 'claude', 'opencode', 'codex', 'gemini', 'aider'];
 export const roleNames = ['engineering', 'review', 'qa', 'architecture', 'devops', 'documentation', 'support'];
@@ -405,6 +406,8 @@ export class AgentsService {
       mode,
       // Micro-Router: o client usa o modelo sugerido quando a máquina não fixou um modelo para o agente
       complexity: task.complexity,
+      // O tipo define a skill injetada no prompt do agente
+      type: task.type,
       suggestedProfile: route.profile,
       suggestedModel: route.suggestedModel,
       // No modo task é o pedido do agente anterior da esteira, quando houver
@@ -606,6 +609,9 @@ export class AgentsService {
     if (data?.priority !== undefined && !taskPriorities.includes(data.priority)) {
       throw new BadRequestException('priority deve ser um de: ' + taskPriorities.join(', '));
     }
+    if (data?.type !== undefined && !taskTypes.includes(data.type)) {
+      throw new BadRequestException('type deve ser um de: ' + taskTypes.join(', '));
+    }
     if (data?.tags !== undefined && (!Array.isArray(data.tags) || data.tags.some((tag: unknown) => typeof tag !== 'string'))) {
       throw new BadRequestException('tags deve ser uma lista de textos');
     }
@@ -617,6 +623,7 @@ export class AgentsService {
       project: await this.findProjectId(organizationId, data?.project),
       status: data?.status as string | undefined,
       priority: data?.priority as string | undefined,
+      type: data?.type as string | undefined,
       tags: data?.tags?.slice(0, 20).map((tag: string) => ({ label: tag.slice(0, 50), color: 'bg-blue-500 text-blue-500' })),
       assigneeIds: await this.memberIds(organizationId, data?.assigneeIds),
     };

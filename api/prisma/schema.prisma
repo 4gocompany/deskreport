@@ -27,6 +27,8 @@ model Task {
   waitingFor  Json?     @map("waiting_for")
   // Tier do Micro-Router: low (free), medium (eco) ou high (frontier). Define o modelo sugerido no despacho
   complexity  String    @default("low")
+  // Tipo GitFlow: feature, bugfix, hotfix, security, refactor ou documentation. Define a skill injetada no prompt
+  type        String    @default("feature")
 
   team         Team?              @relation(fields: [teamId], references: [id], onDelete: SetNull)
   comments     TaskComment[]

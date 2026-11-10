@@ -1,4 +1,4 @@
-import { PRIORITY_CONFIG, TaskCardProps } from '../tasks-data';
+import { PRIORITY_CONFIG, TASK_TYPE_CONFIG, TaskCardProps, TaskType } from '../tasks-data';
 import { useDraggable } from '@dnd-kit/react';
 import { MessageCircleQuestion } from 'lucide-react';
 import { agentProfile, executionPlace, findTaskAgent, useAgentsStore } from '../use-agents';
@@ -13,6 +13,8 @@ interface TaskCardComponentProps {
 
 export function TaskCard({ task, projectName, onClick }: TaskCardComponentProps) {
   const priority = PRIORITY_CONFIG[task.priority];
+  const typeConfig = (task.type && TASK_TYPE_CONFIG[task.type as TaskType]) || TASK_TYPE_CONFIG.feature;
+  const TypeIcon = typeConfig.icon;
   const { ref } = useDraggable({ id: task.id });
   const agent = useAgentsStore((state) => findTaskAgent(state.agents, task, projectName));
   const steps = taskSteps(task);
@@ -32,6 +34,10 @@ export function TaskCard({ task, projectName, onClick }: TaskCardComponentProps)
             className='text-[11px] font-medium text-zinc-600 dark:text-zinc-400 px-2 py-0.5 rounded-md bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700/60 max-w-28 truncate'
           >
             {projectName}
+          </span>
+          <span className={`flex items-center gap-1 text-[11px] font-semibold ${typeConfig.color}`}>
+            <TypeIcon size={11} />
+            {typeConfig.label}
           </span>
           {priority && <span className={`flex items-center gap-1 text-[11px] font-semibold ${priority.color}`}>{priority.label}</span>}
         </div>

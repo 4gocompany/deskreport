@@ -1,0 +1,1 @@
+ALTER TABLE "tasks" ADD COLUMN "type" TEXT NOT NULL DEFAULT 'feature';

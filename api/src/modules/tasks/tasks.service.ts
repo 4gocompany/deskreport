@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { classifyTask, complexities, routing, triageTask } from './complexity';
+import { taskTypes } from './task-types';
 
 @Injectable()
 export class TasksService {
@@ -10,6 +11,7 @@ export class TasksService {
     async create(organizationId: string, data: any) {
         const { assigneeIds, ...rest } = data;
         rest.companyId = organizationId;
+        if (rest.type !== undefined && !taskTypes.includes(rest.type)) throw new BadRequestException('type deve ser um de: ' + taskTypes.join(', '));
         // Sem complexidade escolhida, o Micro-Router define pelo texto da tarefa
         if (!complexities.includes(rest.complexity)) rest.complexity = classifyTask(rest).complexity;
 
@@ -62,7 +64,8 @@ export class TasksService {
     async update(id: string, organizationId: string, data: any) {
         const task = await this.ensureTaskInOrg(id, organizationId);
 
-        const { title, description, project, status, priority, tags, dueDate, teamId, assigneeIds } = data;
+        const { title, description, project, status, priority, tags, dueDate, teamId, assigneeIds, type } = data;
+        if (type !== undefined && !taskTypes.includes(type)) throw new BadRequestException('type deve ser um de: ' + taskTypes.join(', '));
         // Ajuste manual do tier pela pessoa. Valor fora da lista é ignorado
         const complexity = complexities.includes(data.complexity) ? data.complexity : undefined;
         if (status === 'release' && task.waitingFor) {
@@ -81,6 +84,7 @@ export class TasksService {
                 dueDate,
                 teamId,
                 complexity,
+                type,
                 assignees: assigneeIds ? {
                     set: assigneeIds.map((id: string) => ({ id }))
                 } : undefined

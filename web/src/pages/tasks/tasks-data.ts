@@ -1,5 +1,9 @@
+import type { LucideIcon } from 'lucide-react';
+import { BookOpen, Bug, Flame, RefreshCw, Shield, Sparkles } from 'lucide-react';
+
 export type TaskStatus = 'backlog' | 'todo' | 'in-progress' | 'review' | 'done' | 'release';
 export type TaskPriority = 'low' | 'medium' | 'high' | 'urgent';
+export type TaskType = 'feature' | 'bugfix' | 'hotfix' | 'security' | 'refactor' | 'documentation';
 
 export type TaskComment = {
   id: string;
@@ -31,6 +35,7 @@ export type TaskCardProps = {
   status: TaskStatus;
   priority: TaskPriority;
   complexity?: 'low' | 'medium' | 'high';
+  type?: TaskType;
   createdAt: string;
   updatedAt?: string;
   assigneeIds?: string[] | null;
@@ -66,4 +71,14 @@ export const PRIORITY_CONFIG: Record<TaskPriority, { label: string; color: strin
   'medium': { label: 'Média', color: 'text-blue-500', icon: '●' },
   'high': { label: 'Alta', color: 'text-orange-500', icon: '↑' },
   'urgent': { label: 'Urgente', color: 'text-red-500', icon: '▲' }
+};
+
+// Tipo GitFlow da tarefa: rótulo, cor do destaque e ícone dos chips e do badge no card
+export const TASK_TYPE_CONFIG: Record<TaskType, { label: string; color: string; icon: LucideIcon }> = {
+  feature: { label: 'Feature', color: 'text-blue-500', icon: Sparkles },
+  bugfix: { label: 'Bugfix', color: 'text-amber-500', icon: Bug },
+  hotfix: { label: 'Hotfix', color: 'text-red-500', icon: Flame },
+  security: { label: 'Segurança', color: 'text-purple-500', icon: Shield },
+  refactor: { label: 'Refatoração', color: 'text-zinc-500', icon: RefreshCw },
+  documentation: { label: 'Documentação', color: 'text-teal-500', icon: BookOpen },
 };
