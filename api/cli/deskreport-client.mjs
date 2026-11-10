@@ -2168,12 +2168,18 @@ function canEdit(agent) {
   return roles.length === 0 || roles.some((role) => ['engineering', 'devops', 'qa', 'documentation'].includes(role));
 }
 
+// QA que também revisa ou especifica só faz QA quando a esteira pede. Nas outras vezes faz o outro papel e não altera código
+function writesCode(agent) {
+  const onlyQaEdits = !['engineering', 'devops', 'documentation'].some((role) => hasRole(agent, role)) && (hasRole(agent, 'review') || hasRole(agent, 'architecture'));
+  return canEdit(agent) && !onlyQaEdits;
+}
+
 // Etapa da esteira pelo cargo do agente nesta máquina, e não pelo nome dele
 function taskStage(task, cwd) {
   if (task.mode === 'comment') return 'comment';
   // A esteira pede o QA direto, mesmo para quem também revisa
   if (task.stage === 'qa') return 'qa';
-  if (canEdit(task.agent)) return 'implement';
+  if (writesCode(task.agent)) return 'implement';
   // Tarefa já em andamento é revisão, mesmo se o implementador commitou e não sobrou arquivo pendente
   if (hasRole(task.agent, 'review') && (hasChanges(cwd) || ['in-progress', 'review'].includes(task.status))) return 'review';
   if (hasRole(task.agent, 'architecture')) return 'spec';
@@ -2191,7 +2197,7 @@ function taskPrompt(task, cwd) {
   const request = task.mode !== 'comment' && task.comment ? `Pedido do agente anterior para esta etapa:\n${external(plainText(task.comment))}` : '';
 
   if (stage === 'comment') {
-    const editRule = canEdit(task.agent)
+    const editRule = writesCode(task.agent)
       ? 'Se ele pedir implementação, correção, ajuste ou execução, faça a alteração no código desta pasta e responda com um resumo curto do que foi feito.'
       : 'Pelo seu cargo você não altera código. Se o pedido exigir implementação, responda e mencione com @ o agente de Engenharia dizendo o que ele deve fazer.';
     return [
