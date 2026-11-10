@@ -157,6 +157,7 @@ function loadConfig() {
     models: saved.models,
     alerts: saved.alerts !== false,
     onboardingDone: saved.onboardingDone === true,
+    rolePrompts: saved.rolePrompts || {},
     yagniMode: saved.yagniMode || false,
   };
 }
@@ -360,6 +361,7 @@ function handleLocal(req, res) {
   if (route === 'POST /config/agent-roles') return changeRoles(req, res);
   if (route === 'POST /config/role-assignments') return changeRoleAssignments(req, res);
   if (route === 'POST /config/onboarding-done') return finishOnboarding(res);
+  if (route === 'POST /config/role-prompts') return changeRolePrompts(req, res);
   if (route === 'POST /qa/access') return createQaAccess(res);
   if (route === 'POST /skills/audit') return runAuditEndpoint(req, res);
   if (route === 'POST /skills/install') return installSkillEndpoint(req, res);
@@ -554,6 +556,28 @@ function changeRoleAssignments(req, res) {
     }
     if (socket?.connected) socket.emit('machine:roles-updated', { roles: config.agentRoles });
     sendJson(res, 200, { roleAssignments, agentRoles: config.agentRoles, files });
+    broadcast();
+  });
+}
+
+// Prompt de resposta de cada papel, editado no onboarding. Vazio ou igual ao padrão volta ao padrão, e faltar marcador é recusado
+function changeRolePrompts(req, res) {
+  readJsonBody(req, (data) => {
+    const rolePrompts = { ...config.rolePrompts };
+    for (const role of Object.keys(rolePromptDefaults)) {
+      if (typeof data?.prompts?.[role] !== 'string') continue;
+      const text = data.prompts[role].trim().slice(0, 4000);
+      if (!text || text === rolePromptDefaults[role]) {
+        delete rolePrompts[role];
+        continue;
+      }
+      const missing = missingMarkers(role, text);
+      if (missing.length > 0) return sendJson(res, 400, { error: `Faltam os marcadores ${missing.join(' e ')} no prompt de ${roleCatalog[role][0]}` });
+      rolePrompts[role] = text;
+    }
+    config.rolePrompts = rolePrompts;
+    saveConfig({ rolePrompts });
+    sendJson(res, 200, { rolePrompts });
     broadcast();
   });
 }
@@ -913,6 +937,7 @@ function widgetState() {
     roleCatalog: roleNames.map((role) => ({ role, name: roleCatalog[role][0], description: roleCatalog[role][1] })),
     roleAssignments: config.roleAssignments || {},
     onboardingDone: config.onboardingDone,
+    rolePrompts: Object.fromEntries(Object.keys(rolePromptDefaults).map((role) => [role, config.rolePrompts?.[role] || rolePromptDefaults[role]])),
     qaEmail: qaEmail(),
     harnessModelCatalog,
     yagniMode: Boolean(config.yagniMode),
@@ -999,10 +1024,10 @@ function cleanSummary(raw) {
   return filtered.join('\n').trim();
 }
 
-function finish(task, exitCode, summary, touchedFiles = [], stopped = false, classification = null) {
+function finish(task, exitCode, summary, touchedFiles = [], stopped = false, classification = null, sections = null, stage = null) {
   delete running[task.agent];
   saveState();
-  socket.emit('machine:task-finished', { taskId: task.taskId, agent: task.agent, mode: task.mode, handoff: Boolean(task.comment), exitCode, summary, touchedFiles, stopped, tokens: task.tokens, contextTokens: task.contextTokens, contextLimit: task.contextLimit, model: task.model, classification });
+  socket.emit('machine:task-finished', { taskId: task.taskId, agent: task.agent, mode: task.mode, handoff: Boolean(task.comment), exitCode, summary, touchedFiles, stopped, tokens: task.tokens, contextTokens: task.contextTokens, contextLimit: task.contextLimit, model: task.model, classification, stage, spec: sections?.spec, comment: sections?.comment, changelog: sections?.changelog });
   notify(`${agentLabels[task.agent]} ${exitCode === 0 ? 'terminou' : 'parou'}: ${task.title}`);
   agents[task.agent] = { state: 'idle', action: exitCode === 0 ? 'Concluído' : `Parou com código ${exitCode}`, model: task.model };
   broadcast();
@@ -1441,11 +1466,12 @@ async function runTask(task) {
     if (denials.length > 0) facts.push(`Bloqueado pelas permissões do DeskReport:\n${denials.filter((d, i) => denials.indexOf(d) === i).map((d) => `- ${d}`).join('\n')}`);
     if (stage === 'implement' && code === 0 && !stoppedByUser && touchedFiles.length === 0) facts.push('Aviso do DeskReport: nenhum arquivo foi alterado nesta execução.');
     const summary = cleanSummary([stopReason, output.trim()].filter(Boolean).join('\n\n'));
-    const report = [fitSummary(summary, stream), ...facts].filter(Boolean).join('\n\n');
+    const sections = stoppedByUser ? null : parseSections(summary);
+    const report = [sections ? fitSummary(sections.comment || '', true) : fitSummary(summary, stream), ...facts].filter(Boolean).join('\n\n');
     // Spec pronta: a complexidade sai daqui, antes da API acionar a próxima etapa
-    const classification = stage === 'spec' && code === 0 && !stoppedByUser ? await classifySpec({ title: task.title, description: task.description, spec: summary }) : null;
+    const classification = stage === 'spec' && code === 0 && !stoppedByUser ? await classifySpec({ title: task.title, description: task.description, spec: sections?.spec || summary }) : null;
     // Parada pelo usuário nunca conta como sucesso, mesmo se o agente sair com 0
-    finish(task, stoppedByUser ? 1 : code ?? 1, report, touchedFiles, stoppedByUser, classification);
+    finish(task, stoppedByUser ? 1 : code ?? 1, report, touchedFiles, stoppedByUser, classification, sections, stage);
   });
 }
 
@@ -1883,6 +1909,34 @@ const verifyNote = [
   '- Mexa só no que a tarefa pede e siga o padrão do projeto: Prettier, lint e o estilo dos arquivos vizinhos.',
 ].join('\n');
 
+// Formato da resposta final de cada papel: o runner separa as seções e a API usa cada uma no lugar certo.
+// O onboarding mostra e grava esse prompt por papel. Os marcadores são fixos porque o runner depende deles
+const rolePromptDefaults = {
+  architecture: ['SPEC:', '(a spec completa, sem limite de tamanho)', 'COMMENT:', '(curto: avise que a spec está pronta e diga o que o próximo agente deve seguir)'].join('\n'),
+  engineering: ['COMMENT:', '(o que foi feito, curto, e o próximo agente com @)', 'CHANGELOG:', '(o que mudou, em itens curtos)'].join('\n'),
+  qa: ['COMMENT:', '(o resultado de cada passo testado, curto, e o próximo agente com @)', 'CHANGELOG:', '(problemas encontrados, em itens curtos)'].join('\n'),
+};
+const reviewSections = ['COMMENT:', '(parecer curto: aprovado ou não, e o próximo agente com @)', 'CHANGELOG:', '(problemas encontrados, em itens curtos)'].join('\n');
+const roleMarkers = { architecture: ['SPEC:', 'COMMENT:'], engineering: ['COMMENT:', 'CHANGELOG:'], qa: ['COMMENT:', 'CHANGELOG:'] };
+
+// Na implementação, quem só tem o papel de QA usa o prompt do QA
+function stageRole(stage, agent) {
+  if (stage === 'spec') return 'architecture';
+  if (stage === 'implement') return hasRole(agent, 'qa') && !hasRole(agent, 'engineering') ? 'qa' : 'engineering';
+  return '';
+}
+
+function sectionsNote(stage, agent) {
+  if (stage === 'comment') return '';
+  const role = stageRole(stage, agent);
+  const lines = role ? config.rolePrompts?.[role] || rolePromptDefaults[role] : reviewSections;
+  return `Formato da resposta final, em seções com cada marcador sozinho numa linha:\n${lines}`;
+}
+
+function missingMarkers(role, text) {
+  return roleMarkers[role].filter((marker) => !text.split('\n').some((line) => line.trim() === marker));
+}
+
 // Skill de cada tipo de tarefa (feature, bugfix, hotfix, security, refactor, documentation)
 const typeNotes = {
   bugfix: [
@@ -1922,7 +1976,7 @@ function typeNote(type) {
 // Tarefa interrompida (cota ou client reiniciado) volta com o aviso e o último progresso
 function buildPrompt(task, cwd) {
   const yagni = config.yagniMode ? yagniNote : '';
-  const prompt = [taskPrompt(task, cwd), typeNote(task.type), qaNote(task), verifyNote, safetyNote, yagni, teamNote(task.agent), gitContext(cwd), fileLinkNote(cwd)].filter(Boolean).join('\n\n');
+  const prompt = [taskPrompt(task, cwd), typeNote(task.type), qaNote(task), ['implement', 'review'].includes(taskStage(task, cwd)) ? verifyNote : '', sectionsNote(taskStage(task, cwd), task.agent), safetyNote, yagni, teamNote(task.agent), gitContext(cwd), fileLinkNote(cwd)].filter(Boolean).join('\n\n');
   if (!task.resumed) return prompt;
   return [
     prompt,
@@ -2028,6 +2082,24 @@ function fitSummary(summary, fromResult, max = 3200) {
   return start >= 0 ? tail.slice(start + 2) : tail;
 }
 
+// Resposta final em seções, cada marcador sozinho numa linha. Sem nenhum marcador vale o resumo inteiro
+function parseSections(raw) {
+  const sections = {};
+  let current = '';
+  for (const line of raw.split('\n')) {
+    const marker = line.trim().match(/^(SPEC|COMMENT|CHANGELOG):$/);
+    if (marker) {
+      current = marker[1].toLowerCase();
+      sections[current] = '';
+    } else if (current) {
+      sections[current] += `${line}\n`;
+    }
+  }
+  if (!current) return null;
+  for (const key of Object.keys(sections)) sections[key] = sections[key].trim();
+  return sections;
+}
+
 function gitStatusLines(cwd) {
   try {
     return execFileSync('git', ['status', '-s', '--', '.'], { cwd, encoding: 'utf8', timeout: 10_000 }).split('\n').filter(Boolean);
@@ -2073,7 +2145,8 @@ function canEdit(agent) {
 function taskStage(task, cwd) {
   if (task.mode === 'comment') return 'comment';
   if (canEdit(task.agent)) return 'implement';
-  if (hasRole(task.agent, 'review') && hasChanges(cwd)) return 'review';
+  // Tarefa já em andamento é revisão, mesmo se o implementador commitou e não sobrou arquivo pendente
+  if (hasRole(task.agent, 'review') && (hasChanges(cwd) || ['in-progress', 'review'].includes(task.status))) return 'review';
   if (hasRole(task.agent, 'architecture')) return 'spec';
   return 'review';
 }
@@ -2118,7 +2191,7 @@ function taskPrompt(task, cwd) {
         'Você é o arquiteto do time e esta tarefa ainda não tem alterações no código.',
         'Leia o código desta pasta e escreva a especificação: o que muda, arquivos e rotas afetados, modelo de dados e regras de negócio.',
         'Não implemente a tarefa e não faça commit.',
-        'Responda em português com a spec objetiva. Esse texto vira o comentário da tarefa.',
+        'Responda em português. A spec completa vai na seção SPEC e substitui a descrição da tarefa.',
       ].join('\n'),
     ].filter(Boolean).join('\n\n');
   }
@@ -2153,6 +2226,7 @@ function taskPrompt(task, cwd) {
       'Nunca inclua no resumo final saídas de comandos (como $ cd, npx tsc, git diff, head), logs de terminal nem trechos longos de código.',
       'Se algo não foi feito ou apresentou problema, termine com uma seção Impedimentos explicando o motivo.',
       'Esse resumo final será o comentário publicado na tarefa.',
+      'Não faça commit nem push: o commit vem depois da revisão e do teste.',
     ].join('\n'),
   ].filter(Boolean).join('\n\n');
 }
@@ -2585,6 +2659,8 @@ const widgetHtml = `<!doctype html>
   .model span { font-size: 11px; color: var(--faint); }
   .model input, .model select { flex: 1; min-width: 0; font: 11px ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; outline: none; }
   .model input:focus, .model select:focus { border-color: var(--blue); }
+  .prompt-input { width: 100%; box-sizing: border-box; min-height: 96px; resize: vertical; font: 11px ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px; outline: none; }
+  .prompt-input:focus { border-color: var(--blue); }
 
   .alert { background: var(--amber-soft); color: var(--amber); border-radius: 12px; padding: 12px 14px; font-size: 12px; display: flex; flex-direction: column; gap: 8px; }
   .alert button { align-self: flex-start; background: var(--amber); color: #1a1405; border: 0; border-radius: 8px; padding: 6px 10px; font-size: 11px; font-weight: 600; cursor: pointer; }
@@ -2764,6 +2840,7 @@ const widgetHtml = `<!doctype html>
   let step = 0;
   let editing = false;
   let draft = {};
+  let draftPrompts = {};
   let onboardingShown = false;
   let wantOverview = false;
   let onboardingError = '';
@@ -2854,6 +2931,7 @@ const widgetHtml = `<!doctype html>
   function startOnboarding() {
     onboardingShown = true;
     draft = Object.assign({}, state.roleAssignments);
+    draftPrompts = {};
     step = 0;
     editing = false;
     overlay = 'onboarding';
@@ -2863,6 +2941,7 @@ const widgetHtml = `<!doctype html>
 
   function openOverview() {
     draft = Object.assign({}, state.roleAssignments);
+    draftPrompts = {};
     step = 4;
     editing = false;
     overlay = 'onboarding';
@@ -2892,6 +2971,7 @@ const widgetHtml = `<!doctype html>
 
   async function saveDraft() {
     onboardingError = (await postJson('/config/role-assignments', { assignments: draft })) || '';
+    if (!onboardingError && Object.keys(draftPrompts).length > 0) onboardingError = (await postJson('/config/role-prompts', { prompts: draftPrompts })) || '';
     return !onboardingError;
   }
 
@@ -2919,7 +2999,7 @@ const widgetHtml = `<!doctype html>
   function stepButtons(role) {
     if (editing) {
       return stepActions([
-        button('Voltar', 'ghost', function () { draft = Object.assign({}, state.roleAssignments); onboardingError = ''; goTo(4); }),
+        button('Voltar', 'ghost', function () { draft = Object.assign({}, state.roleAssignments); draftPrompts = {}; onboardingError = ''; goTo(4); }),
         button('Continuar', 'primary', async function () { if (!role || (await saveDraft())) goTo(4); else renderOnboarding(); }),
       ]);
     }
@@ -2975,9 +3055,20 @@ const widgetHtml = `<!doctype html>
       card.append(row);
     }
 
+    items.push(promptCard(role));
     if (role === 'qa') items.push(...qaAccess());
     items.push(stepButtons(role));
     return items;
+  }
+
+  // O runner separa a resposta do agente por estes marcadores, então eles não podem sair do prompt
+  function promptCard(role) {
+    const card = el('div', 'card list');
+    const area = el('textarea', 'prompt-input');
+    area.value = draftPrompts[role] !== undefined ? draftPrompts[role] : state.rolePrompts[role];
+    area.oninput = function () { draftPrompts[role] = area.value; };
+    card.append(rowText('Formato da resposta', 'Mantenha cada marcador sozinho na linha'), area);
+    return card;
   }
 
   function qaAccess() {
