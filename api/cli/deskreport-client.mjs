@@ -167,6 +167,7 @@ function loadConfig() {
     webUrl: process.env.DESKREPORT_WEB_URL || saved.webUrl || 'https://app.deskreport.com.br',
     machineToken: process.env.DESKREPORT_MACHINE_TOKEN || saved.machineToken || process.env.DESKREPORT_DEV_TOKEN,
     workspaceRoot: root ? path.resolve(root) : '',
+    extraWorkspaceRoots: Array.isArray(saved.extraWorkspaceRoots) ? saved.extraWorkspaceRoots.filter((dir) => typeof dir === 'string' && path.isAbsolute(dir)) : [],
     organizationName: saved.organizationName,
     enabledAgents: Array.isArray(saved.enabledAgents) ? agentNames.filter((agent) => saved.enabledAgents.includes(agent)) : undefined,
     roleAssignments,
@@ -1247,12 +1248,15 @@ function projectDir(folder) {
 
   const cleanFolder = trimmed.includes('/') ? trimmed.split('/').pop().trim() : trimmed;
   if (!/^[\w-][\w.-]*$/.test(cleanFolder)) return '';
-  try {
-    const dir = realpathSync(path.join(root, cleanFolder));
-    return path.dirname(dir) === root && statSync(dir).isDirectory() ? dir : '';
-  } catch {
-    return '';
+  // Projetos de outros repositórios da máquina ficam nas pastas extras, procuradas depois do Workspace
+  for (const base of [workspaceRoot, ...(config.extraWorkspaceRoots || [])]) {
+    try {
+      const baseDir = realpathSync(base);
+      const dir = realpathSync(path.join(baseDir, cleanFolder));
+      if (path.dirname(dir) === baseDir && statSync(dir).isDirectory()) return dir;
+    } catch {}
   }
+  return '';
 }
 
 // Conversa sem projeto roda numa pasta vazia, nunca na raiz do Workspace
