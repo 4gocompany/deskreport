@@ -108,7 +108,7 @@ export function TaskDetailDrawer({
   const taskAgent = useAgentsStore((state) =>
     state.agents.find((a) => a.state === 'working' && a.taskId === task?.id),
   );
-  const steps = taskSteps(displayTask || task || { status: 'todo' });
+  const steps = taskSteps();
   const currentStep = activeStep(displayTask || task || { status: 'todo' }, taskAgent);
 
   useEffect(() => {

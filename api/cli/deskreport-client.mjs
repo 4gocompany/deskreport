@@ -967,10 +967,10 @@ function cleanSummary(raw) {
   return filtered.join('\n').trim();
 }
 
-function finish(task, exitCode, summary, touchedFiles = [], stopped = false) {
+function finish(task, exitCode, summary, touchedFiles = [], stopped = false, classification = null) {
   delete running[task.agent];
   saveState();
-  socket.emit('machine:task-finished', { taskId: task.taskId, agent: task.agent, mode: task.mode, handoff: Boolean(task.comment), exitCode, summary, touchedFiles, stopped, tokens: task.tokens, contextTokens: task.contextTokens, contextLimit: task.contextLimit, model: task.model });
+  socket.emit('machine:task-finished', { taskId: task.taskId, agent: task.agent, mode: task.mode, handoff: Boolean(task.comment), exitCode, summary, touchedFiles, stopped, tokens: task.tokens, contextTokens: task.contextTokens, contextLimit: task.contextLimit, model: task.model, classification });
   notify(`${agentLabels[task.agent]} ${exitCode === 0 ? 'terminou' : 'parou'}: ${task.title}`);
   agents[task.agent] = { state: 'idle', action: exitCode === 0 ? 'Concluído' : `Parou com código ${exitCode}`, model: task.model };
   broadcast();
@@ -1410,8 +1410,10 @@ async function runTask(task) {
     if (stage === 'implement' && code === 0 && !stoppedByUser && touchedFiles.length === 0) facts.push('Aviso do DeskReport: nenhum arquivo foi alterado nesta execução.');
     const summary = cleanSummary([stopReason, output.trim()].filter(Boolean).join('\n\n'));
     const report = [fitSummary(summary, stream), ...facts].filter(Boolean).join('\n\n');
+    // Spec pronta: a complexidade sai daqui, antes da API acionar a próxima etapa
+    const classification = stage === 'spec' && code === 0 && !stoppedByUser ? await classifySpec({ title: task.title, description: task.description, spec: summary }) : null;
     // Parada pelo usuário nunca conta como sucesso, mesmo se o agente sair com 0
-    finish(task, stoppedByUser ? 1 : code ?? 1, report, touchedFiles, stoppedByUser);
+    finish(task, stoppedByUser ? 1 : code ?? 1, report, touchedFiles, stoppedByUser, classification);
   });
 }
 
@@ -1646,12 +1648,17 @@ function runTeamMessage(msg) {
 }
 
 // Baixa os anexos da tarefa para a pasta do client, fora do repositório, e guarda o caminho local de cada um
-// Triagem da tarefa: só devolve o tier, nunca abre o projeto nem executa código.
-// Com chave usa o Jev, senão o harness local mais barato numa pasta vazia, sem ferramentas e com 15 segundos
+// Classificação pedida pelo painel, para spec escrita por pessoa na descrição
 async function classifyTask(task) {
   if (!task?.taskId || !socket?.connected) return;
-  const result = (await classifyWithJev(task).catch(() => null)) || (await classifyLocally(task).catch(() => null));
+  const result = await classifySpec(task);
   if (result) socket.emit('task:classified', { taskId: task.taskId, ...result });
+}
+
+// Classificação da spec: só devolve o tier e os fatos, nunca abre o projeto nem executa código.
+// O Jev entra só com chave. Sem ela, o harness local mais barato numa pasta vazia e sem ferramentas
+async function classifySpec(task) {
+  return (await classifyWithJev(task).catch(() => null)) || (await classifyLocally(task).catch(() => null));
 }
 
 async function classifyWithJev(task) {
@@ -1683,12 +1690,10 @@ async function classifyWithJev(task) {
   const data = await response.json();
   const answer = data?.answers?.complexity || data?.decisions?.complexity || data?.complexity || data;
   const choice = answer?.choice || answer?.value;
-  const tiers = ['low', 'medium', 'high'];
-  if (!tiers.includes(choice)) return null;
-  // Pouca confiança sobe um tier por segurança
+  if (!['low', 'medium', 'high'].includes(choice)) return null;
+  // A API aplica a regra da confiança baixa
   const confidence = Number(answer?.confidence ?? answer?.score ?? 1);
-  const complexity = confidence < 0.65 ? tiers[Math.min(tiers.indexOf(choice) + 1, 2)] : choice;
-  return { complexity, reason: `Jev classificou como ${choice} com confiança ${confidence}`, needsSpec: false };
+  return { complexity: choice, confidence, reason: `Jev classificou como ${choice} com confiança ${confidence}` };
 }
 
 // Ordem de eleição: OpenCode com modelo gratuito, Claude Haiku e Codex mini (read-only estrito)
@@ -1701,23 +1706,25 @@ function classifierCommand(prompt) {
 }
 
 function classifyLocally(task) {
-  const tags = Array.isArray(task.tags) ? task.tags.join(', ') : '';
+  const spec = task.spec ? `\nSpec escrita pelo arquiteto:\n${plainText(task.spec).slice(0, 8000)}` : '';
   const prompt = `Você é o classificador de complexidade do DeskReport.
-Analise a tarefa abaixo e responda APENAS com um objeto JSON na linha final, sem explicações em volta.
+Leia a spec abaixo e responda APENAS com um objeto JSON na linha final, sem explicações em volta.
 Não use ferramentas, não leia arquivos e não rode comandos.
 
-Tarefa:
 Título: ${task.title || ''}
-Descrição: ${plainText(task.description || '').slice(0, 4000)}
-Tags: ${tags}
+Descrição: ${plainText(task.description || '').slice(0, 6000)}${spec}
 
-Opções de complexidade:
-- "low": Documentação pura (README), correção de textos/typos ou formatação sem código executável.
-- "medium": Telas, modais, componentes de interface, endpoints de API, migrations de banco, CRUDs e integrações.
-- "high": Segurança, isolamento multi-tenant, autenticação, concorrência, pagamentos ou arquitetura crítica.
+Devolva os fatos da spec:
+- complexity: "low" (ajuste pontual ou texto), "medium" (feature em poucas camadas) ou "high" (mudança ampla ou crítica).
+- confidence: de 0.0 a 1.0, o quanto a spec deixa claro o tamanho do trabalho.
+- layers: camadas alteradas, só entre "banco", "api", "web", "runner", "infra" e "docs".
+- migration: true só se a spec cria ou altera tabela ou coluna no banco.
+- security: true só se a spec MUDA autenticação, permissão, isolamento de tenant ou tratamento de segredos. Apenas citar segurança não conta.
+- files: quantos arquivos a spec manda criar ou alterar.
+- reason: uma frase.
 
 Formato obrigatório da resposta:
-{"complexity": "low" | "medium" | "high", "reason": "motivo curto em uma frase", "needsSpec": boolean}`;
+{"complexity":"low|medium|high","confidence":0.0,"layers":[],"migration":false,"security":false,"files":0,"reason":"uma frase"}`;
 
   const command = classifierCommand(prompt);
   if (!command) return Promise.resolve(null);
@@ -1737,7 +1744,7 @@ Formato obrigatório da resposta:
       stdio: ['ignore', 'pipe', 'ignore'],
     });
     let output = '';
-    const timer = setTimeout(() => child.kill(), 15_000);
+    const timer = setTimeout(() => child.kill(), 120_000);
     child.stdout.on('data', (chunk) => (output += chunk));
     child.on('error', () => resolve(null));
     child.on('close', () => {
@@ -1758,7 +1765,15 @@ function parseClassification(output) {
   try {
     const data = JSON.parse(found[found.length - 1]);
     if (!['low', 'medium', 'high'].includes(data.complexity)) return null;
-    return { complexity: data.complexity, reason: String(data.reason || '').slice(0, 300), needsSpec: data.needsSpec === true };
+    return {
+      complexity: data.complexity,
+      confidence: Number(data.confidence),
+      layers: Array.isArray(data.layers) ? data.layers.map(String) : [],
+      migration: data.migration === true,
+      security: data.security === true,
+      files: Number(data.files) || 0,
+      reason: String(data.reason || '').slice(0, 300),
+    };
   } catch {
     return null;
   }

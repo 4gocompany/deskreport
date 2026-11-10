@@ -1,16 +1,14 @@
 import { AgentStatus } from './use-agents';
 import { TaskCardProps } from './tasks-data';
 
-// Especificação só entra quando a complexidade pede, as demais etapas valem para toda tarefa
-export function taskSteps(task: Pick<TaskCardProps, 'complexity' | 'status'>) {
-  const steps = ['Desenvolvimento', 'QA', 'Revisão', 'Deploy'];
-  if (task.complexity === 'medium' || task.complexity === 'high') return ['Especificação', ...steps];
-  return steps;
+// Toda tarefa passa pela Especificação, que é onde a complexidade é classificada
+export function taskSteps() {
+  return ['Especificação', 'Desenvolvimento', 'QA', 'Revisão', 'Deploy'];
 }
 
 // A etapa ativa segue o status e o que o agente está fazendo, nunca o nome do agente sozinho
 export function activeStep(task: Pick<TaskCardProps, 'complexity' | 'status'>, agent?: AgentStatus) {
-  const steps = taskSteps(task);
+  const steps = taskSteps();
   if (task.status === 'done' || task.status === 'release') return steps.length - 1;
 
   if (agent?.state === 'working') {

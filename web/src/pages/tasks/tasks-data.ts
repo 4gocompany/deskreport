@@ -34,7 +34,7 @@ export type TaskCardProps = {
   project: string;
   status: TaskStatus;
   priority: TaskPriority;
-  complexity?: 'low' | 'medium' | 'high';
+  complexity?: 'pending' | 'low' | 'medium' | 'high';
   type?: TaskType;
   createdAt: string;
   updatedAt?: string;

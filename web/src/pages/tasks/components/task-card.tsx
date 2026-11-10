@@ -17,7 +17,7 @@ export function TaskCard({ task, projectName, onClick }: TaskCardComponentProps)
   const TypeIcon = typeConfig.icon;
   const { ref } = useDraggable({ id: task.id });
   const agent = useAgentsStore((state) => findTaskAgent(state.agents, task, projectName));
-  const steps = taskSteps(task);
+  const steps = taskSteps();
   const currentStep = activeStep(task, agent);
 
   return (
