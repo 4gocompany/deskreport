@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { readYagniMode, toggleYagniMode, TrayState, watchTrayState } from './daemon';
-import { openWidget, toggleWidget } from './window';
+import { openSettings, openWidget, toggleWidget } from './window';
 
 const PANEL_URL = 'https://app.deskreport.com.br';
 
@@ -49,6 +49,7 @@ async function buildMenu(tray: Tray) {
   return Menu.buildFromTemplate([
     { label: 'Abrir Widget', click: () => openWidget(tray.getBounds()) },
     { label: 'Abrir Painel Web', click: () => shell.openExternal(PANEL_URL) },
+    { label: 'Configurações', click: () => openSettings(tray.getBounds()) },
     { type: 'separator' },
     {
       label: 'Modo Econômico (YAGNI)',

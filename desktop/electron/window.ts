@@ -73,6 +73,11 @@ export function openWidget(trayBounds: Rect) {
   widget.focus();
 }
 
+export function openSettings(trayBounds: Rect) {
+  openWidget(trayBounds);
+  widget?.loadURL(`${WIDGET_URL}#configuracoes`).catch(() => {});
+}
+
 function hideWidget() {
   widget?.hide();
 }
