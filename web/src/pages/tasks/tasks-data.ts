@@ -55,6 +55,8 @@ export type TaskCardProps = {
   tokensUsed?: number;
   tokenBudget?: number;
   waitingFor?: TaskWaitingFor | null;
+  specEditedBy?: string | null;
+  specEditedAt?: string | null;
 }
 
 export const STATUS_CONFIG: Record<TaskStatus, { label: string; color: string }> = {

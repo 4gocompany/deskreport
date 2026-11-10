@@ -587,6 +587,12 @@ export function TaskDetailDrawer({
                     onClick={() => setIsEditingDescription(true)}
                     className='rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/40 dark:bg-zinc-950/30 p-4 min-h-[80px] cursor-pointer hover:border-zinc-300 dark:hover:border-zinc-700 transition-colors'
                   >
+                    {displayTask.specEditedBy && displayTask.specEditedAt && (
+                      <p className='text-xs text-zinc-400 mb-2'>
+                        Spec editada por {agentProfile(displayTask.specEditedBy).name} em{' '}
+                        {formatTimestamp(displayTask.specEditedAt)}
+                      </p>
+                    )}
                     {displayTask.description ? (
                       <RichText content={displayTask.description} />
                     ) : (
