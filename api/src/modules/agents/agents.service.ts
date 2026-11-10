@@ -1,6 +1,7 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, HttpException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { createHash, randomBytes } from 'crypto';
+import { auth } from '../../auth/auth';
 import { PrismaService } from '../../prisma/prisma.service';
 import { budgets, complexities, finalTier, routing } from '../tasks/complexity';
 import { taskTypes } from '../tasks/task-types';
@@ -117,6 +118,7 @@ export class AgentsService {
   private taskLogs: Record<string, Record<string, AgentStatus[]>> = {};
   private outputs: Record<string, Record<string, string>> = {};
   private enabledByOrg: Record<string, string[]> = {};
+  private qaCalls: Record<string, number[]> = {};
 
   constructor(private prisma: PrismaService) { }
 
@@ -195,6 +197,43 @@ export class AgentsService {
     const { count } = await this.prisma.agentMachine.deleteMany({ where: { id, organizationId } });
     if (count === 0) throw new NotFoundException('Machine not found');
     return { id };
+  }
+
+  // Um usuário de QA por organização, sempre member. A senha só chega aqui para virar hash e nunca volta na resposta
+  async createQaAccess(organizationId: string, password: unknown) {
+    if (typeof password !== 'string' || password.length < 24 || password.length > 128) throw new BadRequestException('Senha inválida');
+
+    const hourAgo = Date.now() - 3_600_000;
+    const calls = (this.qaCalls[organizationId] || []).filter((time) => time > hourAgo);
+    if (calls.length >= 5) throw new HttpException('Muitas tentativas, aguarde', 429);
+    this.qaCalls[organizationId] = [...calls, Date.now()];
+
+    const email = `qa-${organizationId.replace(/-/g, '').slice(0, 12)}@agents.deskreport.com.br`;
+    const context = await auth.$context;
+    const hash = await context.password.hash(password);
+    const now = new Date();
+
+    let user = await this.prisma.user.findFirst({ where: { email } });
+    if (!user) {
+      user = await this.prisma.user.create({ data: { name: 'QA (agente)', email, emailVerified: true, role: 'agent', createdAt: now, updatedAt: now } });
+    }
+
+    const account = await this.prisma.account.findFirst({ where: { userId: user.id, providerId: 'credential' } });
+    if (account) {
+      await this.prisma.account.update({ where: { id: account.id }, data: { password: hash, updatedAt: now } });
+    } else {
+      await this.prisma.account.create({ data: { accountId: user.id, providerId: 'credential', userId: user.id, password: hash, createdAt: now, updatedAt: now } });
+    }
+
+    await this.prisma.member.deleteMany({ where: { userId: user.id, organizationId: { not: organizationId } } });
+    await this.prisma.member.upsert({
+      where: { organizationId_userId: { organizationId, userId: user.id } },
+      update: { role: 'member' },
+      create: { organizationId, userId: user.id, role: 'member', createdAt: now },
+    });
+    await this.prisma.session.deleteMany({ where: { userId: user.id } });
+
+    return { email };
   }
 
   // Devolve a organização dona da chave, ou null quando a chave não vale

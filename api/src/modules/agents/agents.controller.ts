@@ -191,6 +191,13 @@ export class AgentsController {
     return { id: message.id, from: message.agent, to: message.targetAgent || 'team', taskId: message.taskId };
   }
 
+  @AllowAnonymous()
+  @Post('agents/mcp/qa-access')
+  async mcpQaAccess(@Headers('authorization') authorization: string, @Body() data: any) {
+    const orgId = await this.machineOrg(authorization);
+    return this.agentsService.createQaAccess(orgId, data?.password);
+  }
+
   private async machineOrg(authorization: string | undefined) {
     const token = authorization?.replace(/^Bearer\s+/i, '');
     const orgId = await this.agentsService.findOrgByMachineToken(token);
