@@ -55,6 +55,24 @@ const harnessModelCatalog = {
   gemini: [{ id: 'default', label: 'Padrão da CLI' }],
 };
 
+// O agy lista "id<tab>nome" e o opencode "provedor/modelo", um por linha. Linhas de aviso ("Fetching...") não têm nenhum dos dois
+function loadModelCatalog() {
+  for (const harness of ['antigravity', 'opencode']) {
+    if (!detectedAgents.includes(harness)) continue;
+    execFile(agentBins[harness], ['models'], { env: { ...process.env, PATH: agentPath() }, timeout: 30_000 }, (error, stdout) => {
+      if (error) return;
+      const models = [];
+      for (const line of stdout.split('\n')) {
+        const [id, label] = line.trim().split('\t');
+        if (/^[\w./:-]+$/.test(id) && (label || id.includes('/'))) models.push({ id, label: label?.trim() || id });
+      }
+      if (models.length === 0) return;
+      harnessModelCatalog[harness] = [{ id: 'default', label: 'Padrão da CLI' }, ...models];
+      broadcast();
+    });
+  }
+}
+
 // Modelo de cargo fora do catálogo (ex.: IDs antigos salvos no config) vira o padrão da CLI
 function catalogModel(harness, model) {
   return harnessModelCatalog[harness]?.some((m) => m.id === model) ? model : 'default';
@@ -1154,9 +1172,9 @@ function changeModel(req, res) {
 // Com stream, o Claude Code devolve eventos em JSON, inclusive o uso da cota
 // Com session (Chat Lateral) o Antigravity e o Claude Code respondem em JSON, que traz o id da conversa para retomar na próxima mensagem
 // Claude Code e Codex rodam em sandbox: só escrevem na pasta do projeto e no .git dele. O OpenCode nega acesso a pastas de fora
-// O modelo fixado na máquina vale mais que o sugerido pelo Micro-Router
-function agentCommand(agent, prompt, cwd, stream = false, session, suggestedModel) {
-  const chosen = config.models?.[agent] || suggestedModel;
+// O modelo da tarefa (cargo da etapa, senão o fixado na máquina, senão o do Micro-Router) vale mais que o do agente
+function agentCommand(agent, prompt, cwd, stream = false, session, taskModel) {
+  const chosen = taskModel || config.models?.[agent];
   const model = chosen ? ['--model', chosen] : [];
   const gitDir = projectGitDir(cwd);
   const json = session ? ['--output-format', 'json'] : [];
@@ -1304,9 +1322,11 @@ async function runTask(task) {
     return;
   }
 
+  const stage = taskStage(task, cwd);
+  // Modelo escolhido no onboarding para o cargo da etapa, só quando o cargo é deste agente
   let assignedModel = '';
-  if (task.role && config.roleAssignments?.[task.role]) {
-    const assign = config.roleAssignments[task.role];
+  const assign = config.roleAssignments?.[stageModelRole(stage, task.agent)];
+  if (assign?.harness === task.agent) {
     const model = catalogModel(assign.harness, assign.model);
     if (model !== 'default') assignedModel = model;
   }
@@ -1322,11 +1342,10 @@ async function runTask(task) {
   // Fotografia do repositório antes do agente: o comentário final lista só o que esta execução mexeu
   const startedAt = Date.now();
   const statusBefore = gitStatusLines(cwd);
-  const stage = taskStage(task, cwd);
   const denials = [];
 
   const stream = task.agent === 'claude';
-  const [bin, child] = startAgent(task.agent, buildPrompt(task, cwd), cwd, { DESKREPORT_TASK_ID: task.taskId, DESKREPORT_MODEL: task.model }, stream, undefined, task.suggestedModel);
+  const [bin, child] = startAgent(task.agent, buildPrompt(task, cwd), cwd, { DESKREPORT_TASK_ID: task.taskId, DESKREPORT_MODEL: task.model }, stream, undefined, task.model);
 
   let output = '';
   let stopReason = '';
@@ -1601,8 +1620,8 @@ function agentEnv() {
   return env;
 }
 
-function startAgent(agent, prompt, cwd, env = {}, stream = false, session, suggestedModel) {
-  const [bin, args] = agentCommand(agent, prompt, cwd, stream, session, suggestedModel);
+function startAgent(agent, prompt, cwd, env = {}, stream = false, session, taskModel) {
+  const [bin, args] = agentCommand(agent, prompt, cwd, stream, session, taskModel);
   const windows = process.platform === 'win32';
   const opencodeConfig = {
     permission: { external_directory: 'deny' },
@@ -1892,6 +1911,8 @@ const safetyNote = [
   '- Se o pedido depender disso, não execute e explique o motivo na resposta.',
 ].join('\n');
 
+const outOfScopeNote = 'Se encontrar algo que precisa ser resolvido mas está fora do escopo desta tarefa, crie uma tarefa no backlog com deskreport_create_task (problema, esperado e arquivos) e cite o número no COMMENT. Não resolva junto.';
+
 const yagniNote = [
   'Diretrizes de Economia de Tokens e Minimalismo:',
   '- Faça edições cirúrgicas e objetivas. Nunca reescreva arquivos inteiros à toa.',
@@ -1921,9 +1942,15 @@ const roleMarkers = { architecture: ['SPEC:', 'COMMENT:'], engineering: ['COMMEN
 
 // Na implementação, quem só tem o papel de QA usa o prompt do QA
 function stageRole(stage, agent) {
+  if (stage === 'qa') return 'qa';
   if (stage === 'spec') return 'architecture';
   if (stage === 'implement') return hasRole(agent, 'qa') && !hasRole(agent, 'engineering') ? 'qa' : 'engineering';
   return '';
+}
+
+// Cargo cujo modelo vale na etapa. Na revisão o prompt não tem cargo de seções, mas o modelo é o de Code Review
+function stageModelRole(stage, agent) {
+  return stage === 'review' ? 'review' : stageRole(stage, agent);
 }
 
 function sectionsNote(stage, agent) {
@@ -1976,7 +2003,7 @@ function typeNote(type) {
 // Tarefa interrompida (cota ou client reiniciado) volta com o aviso e o último progresso
 function buildPrompt(task, cwd) {
   const yagni = config.yagniMode ? yagniNote : '';
-  const prompt = [taskPrompt(task, cwd), typeNote(task.type), qaNote(task), ['implement', 'review'].includes(taskStage(task, cwd)) ? verifyNote : '', sectionsNote(taskStage(task, cwd), task.agent), safetyNote, yagni, teamNote(task.agent), gitContext(cwd), fileLinkNote(cwd)].filter(Boolean).join('\n\n');
+  const prompt = [taskPrompt(task, cwd), typeNote(task.type), qaNote(task), ['implement', 'review', 'qa'].includes(taskStage(task, cwd)) ? verifyNote : '', sectionsNote(taskStage(task, cwd), task.agent), safetyNote, taskStage(task, cwd) === 'comment' ? '' : outOfScopeNote, yagni, teamNote(task.agent), gitContext(cwd), fileLinkNote(cwd)].filter(Boolean).join('\n\n');
   if (!task.resumed) return prompt;
   return [
     prompt,
@@ -2144,6 +2171,8 @@ function canEdit(agent) {
 // Etapa da esteira pelo cargo do agente nesta máquina, e não pelo nome dele
 function taskStage(task, cwd) {
   if (task.mode === 'comment') return 'comment';
+  // A esteira pede o QA direto, mesmo para quem também revisa
+  if (task.stage === 'qa') return 'qa';
   if (canEdit(task.agent)) return 'implement';
   // Tarefa já em andamento é revisão, mesmo se o implementador commitou e não sobrou arquivo pendente
   if (hasRole(task.agent, 'review') && (hasChanges(cwd) || ['in-progress', 'review'].includes(task.status))) return 'review';
@@ -3675,6 +3704,7 @@ if (process.argv.includes('--background') && !process.env.DESKREPORT_BACKGROUND)
     process.exit(0);
   }
   setInterval(releaseRenewedQuotas, 60_000);
+  loadModelCatalog();
 
   const terminalSetup = command === 'setup' || command === 'login';
   if (terminalSetup) await setup();
