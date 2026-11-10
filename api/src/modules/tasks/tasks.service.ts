@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import { classifyTask, complexities, routing, triageTask } from './complexity';
+import { budgets, classifyWithJev, complexities, jevKey, routing } from './complexity';
 import { taskTypes } from './task-types';
 
 @Injectable()
@@ -12,8 +12,9 @@ export class TasksService {
         const { assigneeIds, ...rest } = data;
         rest.companyId = organizationId;
         if (rest.type !== undefined && !taskTypes.includes(rest.type)) throw new BadRequestException('type deve ser um de: ' + taskTypes.join(', '));
-        // Sem complexidade escolhida, o Micro-Router define pelo texto da tarefa
-        if (!complexities.includes(rest.complexity)) rest.complexity = classifyTask(rest).complexity;
+        // Sem complexidade escolhida, a tarefa espera a spec pronta para ser classificada
+        if (complexities.includes(rest.complexity)) rest.tokenBudget = budgets[rest.complexity];
+        else rest.complexity = 'pending';
 
         const lastTask = await this.prisma.task.findFirst({
             where: { companyId: organizationId },
@@ -84,6 +85,7 @@ export class TasksService {
                 dueDate,
                 teamId,
                 complexity,
+                tokenBudget: complexity ? budgets[complexity] : undefined,
                 type,
                 assignees: assigneeIds ? {
                     set: assigneeIds.map((id: string) => ({ id }))
@@ -94,17 +96,20 @@ export class TasksService {
         return this.findOne(id, organizationId);
     }
 
-    // POST /tasks/:id/classify: recalcula o tier (Jev quando há chave, senão regra por texto) e grava
+    // POST /tasks/:id/classify: com chave o Jev classifica aqui. Sem chave fica o tier atual e a máquina classifica depois
     async classify(id: string, organizationId: string) {
         const task = await this.prisma.task.findFirst({
             where: { id, companyId: organizationId },
-            select: { id: true, shortId: true, title: true, description: true, tags: true }
+            select: { id: true, shortId: true, title: true, description: true, tags: true, complexity: true }
         });
         if (!task) throw new NotFoundException('Task not found');
 
-        const { complexity, reason } = await triageTask(task);
-        await this.prisma.task.update({ where: { id }, data: { complexity } });
-        return { id: task.id, shortId: task.shortId, complexity, routing: { ...routing(complexity), reason } };
+        const result = jevKey() ? await classifyWithJev(task).catch(() => null) : null;
+        if (!result) return { ...task, routing: routing(task.complexity) };
+
+        const { complexity, reason } = result;
+        await this.prisma.task.update({ where: { id: task.id, companyId: organizationId }, data: { complexity, tokenBudget: budgets[complexity] } });
+        return { ...task, complexity, routing: { ...routing(complexity), reason } };
     }
 
     async addComment(id: string, organizationId: string, userId: string, content: string) {

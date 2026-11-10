@@ -2,7 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { Prisma } from '@prisma/client';
 import { createHash, randomBytes } from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
-import { applySanityCheck, classifyTask, complexities, routing } from '../tasks/complexity';
+import { budgets, complexities, finalTier, routing } from '../tasks/complexity';
 import { taskTypes } from '../tasks/task-types';
 
 export const agentNames = ['antigravity', 'claude', 'opencode', 'codex', 'gemini', 'aider'];
@@ -415,18 +415,18 @@ export class AgentsService {
     };
   }
 
-  // Resultado da triagem local da máquina. A guarda roda de novo aqui, a API não confia no client
+  // Classificação da spec feita na máquina. A regra dos fatos roda de novo aqui, a API não confia no client
   async saveClassification(organizationId: string, data: any) {
     if (typeof data?.taskId !== 'string' || !complexities.includes(data?.complexity)) return null;
 
-    const task = await this.prisma.task.findFirst({
+    // Sem confiança informada conta como baixa e sobe um nível
+    const complexity = finalTier(data.complexity, Number(data.confidence) || 0, data);
+    const { count } = await this.prisma.task.updateMany({
       where: { id: data.taskId, companyId: organizationId },
-      select: { id: true, title: true, description: true, tags: true },
+      data: { complexity, tokenBudget: budgets[complexity] },
     });
-    if (!task) return null;
-
-    const { complexity } = applySanityCheck(data.complexity, task);
-    return this.prisma.task.update({ where: { id: task.id }, data: { complexity }, include: taskInclude });
+    if (!count) return null;
+    return this.prisma.task.findFirst({ where: { id: data.taskId, companyId: organizationId }, include: taskInclude });
   }
 
   // A tarefa guarda o id do projeto, mas tarefas antigas podem ter o nome
@@ -538,7 +538,7 @@ export class AgentsService {
         ...fields,
         title: fields.title,
         project: fields.project,
-        complexity: classifyTask(fields).complexity,
+        complexity: 'pending',
         companyId: organizationId,
         shortId: (last?.shortId || 0) + 1,
         reporterId: agentUsers[agent].id,

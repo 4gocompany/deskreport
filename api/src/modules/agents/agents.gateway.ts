@@ -116,6 +116,8 @@ export class AgentsGateway implements OnGatewayConnection {
     if (client.data?.kind !== 'machine') return;
 
     const organizationId = client.data.organizationId;
+    // A classificação da spec é gravada antes da próxima etapa, para o implementador sair com modelo e orçamento certos
+    if (data?.classification) await this.agentsService.saveClassification(organizationId, { ...data.classification, taskId: data.taskId });
     const task = await this.agentsService.finishTask(organizationId, data);
     if (task) this.server.to(uiRoom(organizationId)).emit('task:updated', task);
     if (task && data?.exitCode === 0 && !data?.stopped) await this.nextStage(organizationId, task.id, data);
