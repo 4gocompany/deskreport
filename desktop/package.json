@@ -1,6 +1,6 @@
 {
   "name": "deskreport-desktop",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "DeskReport Desktop Companion: widget nativo na bandeja do sistema",
   "main": "dist/main.js",
