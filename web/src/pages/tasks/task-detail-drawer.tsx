@@ -3,10 +3,12 @@ import {
   History,
   Users2,
   ChevronRight,
+  ChevronDown,
+  Check,
+  FolderDot,
   MessageSquare,
   Plus,
   User,
-  Target,
   Layers,
   Hash,
   Activity,
@@ -17,8 +19,8 @@ import {
   Terminal,
   MessageCircleQuestion,
 } from 'lucide-react';
-import { TaskCardProps, TaskComment, TaskStatus, PRIORITY_CONFIG, STATUS_CONFIG } from './tasks-data';
-import { useState, useEffect } from 'react';
+import { TaskCardProps, TaskComment, TaskStatus, TaskType, PRIORITY_CONFIG, STATUS_CONFIG, TASK_TYPE_CONFIG } from './tasks-data';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { RichEditor } from '../../components/ui/rich-editor';
 import { RichText, toEditorHtml } from '../../components/ui/rich-text';
 import { Button, Dialog } from '../../components/ui';
@@ -71,6 +73,66 @@ function commentTrace(comment: TaskComment) {
   return { name, model: comment.metadata?.model || '' };
 }
 
+interface ParsedProject {
+  id: string;
+  name: string;
+  folder?: string;
+  workspace: string;
+  scope: string;
+  isRoot: boolean;
+  displayLabel: string;
+  breadcrumbLabel: string;
+  scopeLabel: string;
+}
+
+function parseProjectHierarchy(p: { id: string; name: string; folder?: string }): ParsedProject {
+  if (p.name.includes(' / ')) {
+    const parts = p.name.split(' / ');
+    const ws = parts[0].trim();
+    const ch = parts.slice(1).join(' / ').trim();
+    const isRoot = ch.toLowerCase() === 'raiz' || ch.toLowerCase() === 'root';
+    return {
+      id: p.id,
+      name: p.name,
+      folder: p.folder,
+      workspace: ws,
+      scope: ch,
+      isRoot,
+      displayLabel: isRoot ? `${ws} (raiz)` : `${ws} / ${ch}`,
+      breadcrumbLabel: isRoot ? ws : `${ws} / ${ch}`,
+      scopeLabel: isRoot ? `${ws} (todo o repo)` : ch,
+    };
+  }
+  if (p.name.includes('/')) {
+    const parts = p.name.split('/');
+    const ws = parts[0].trim();
+    const ch = parts.slice(1).join('/').trim();
+    const isRoot = ch.toLowerCase() === 'raiz' || ch.toLowerCase() === 'root';
+    return {
+      id: p.id,
+      name: p.name,
+      folder: p.folder,
+      workspace: ws,
+      scope: ch,
+      isRoot,
+      displayLabel: isRoot ? `${ws} (raiz)` : `${ws} / ${ch}`,
+      breadcrumbLabel: isRoot ? ws : `${ws} / ${ch}`,
+      scopeLabel: isRoot ? `${ws} (todo o repo)` : ch,
+    };
+  }
+  return {
+    id: p.id,
+    name: p.name,
+    folder: p.folder,
+    workspace: '4go-company',
+    scope: p.name,
+    isRoot: false,
+    displayLabel: p.name,
+    breadcrumbLabel: p.name,
+    scopeLabel: p.name,
+  };
+}
+
 export function TaskDetailDrawer({
   task,
   isOpen,
@@ -90,6 +152,45 @@ export function TaskDetailDrawer({
   const { projects, teams, fetchTeams, members, fetchMembers } = useTenantStore();
   const { data: session } = useSession();
   const user = session?.user;
+
+  const parsedProjects = useMemo(() => {
+    return projects
+      .filter((p) => p.id !== 'all')
+      .map((p) => parseProjectHierarchy(p));
+  }, [projects]);
+
+  const groupedProjects = useMemo(() => {
+    const map: Record<string, ParsedProject[]> = {};
+    for (const p of parsedProjects) {
+      if (!map[p.workspace]) map[p.workspace] = [];
+      map[p.workspace].push(p);
+    }
+    return Object.entries(map).map(([workspace, items]) => ({
+      workspace,
+      items,
+    }));
+  }, [parsedProjects]);
+
+  const currentProject = parsedProjects.find(
+    (p) => p.id === displayTask?.project || p.name === displayTask?.project
+  );
+
+  const [isProjectPickerOpen, setIsProjectPickerOpen] = useState(false);
+  const projectPickerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (projectPickerRef.current && !projectPickerRef.current.contains(e.target as Node)) {
+        setIsProjectPickerOpen(false);
+      }
+    }
+    if (isProjectPickerOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isProjectPickerOpen]);
 
   const [isAddingAssignee, setIsAddingAssignee] = useState(false);
   const [isAddingTag, setIsAddingTag] = useState(false);
@@ -140,6 +241,7 @@ export function TaskDetailDrawer({
         project: sanitizedProject,
         status: defaultStatus || 'todo',
         priority: 'medium',
+        type: 'feature',
         createdAt: new Date().toISOString(),
         assigneeIds: [],
         assignees: [],
@@ -157,8 +259,9 @@ export function TaskDetailDrawer({
 
   const priority = displayTask ? PRIORITY_CONFIG[displayTask.priority] : null;
   const status = displayTask ? STATUS_CONFIG[displayTask.status] : null;
-  const projectName =
-    projects.find((p) => p.id === displayTask?.project)?.name || displayTask?.project;
+  const projectName = currentProject
+    ? currentProject.breadcrumbLabel
+    : (projects.find((p) => p.id === displayTask?.project)?.name || displayTask?.project || 'Geral');
 
   // O agente vem dos responsáveis e a pasta vem do projeto da tarefa
   const assignedAgents = (displayTask?.assigneeIds || [])
@@ -298,6 +401,7 @@ export function TaskDetailDrawer({
           : 'deskreport',
       status: displayTask.status,
       priority: displayTask.priority,
+      type: displayTask.type || 'feature',
       assigneeIds: displayTask.assigneeIds || [],
       teamId: displayTask.teamId,
       tags: displayTask.tags || [],
@@ -412,6 +516,27 @@ export function TaskDetailDrawer({
                     )}
                   </h1>
                 )}
+                <div className='flex flex-wrap gap-1.5 mt-3'>
+                  {(Object.entries(TASK_TYPE_CONFIG) as [TaskType, (typeof TASK_TYPE_CONFIG)[TaskType]][]).map(([id, config]) => {
+                    const Icon = config.icon;
+                    const active = (displayTask.type || 'feature') === id;
+                    return (
+                      <button
+                        key={id}
+                        type='button'
+                        onClick={() => handlePropertyUpdate('type', id)}
+                        className={`flex items-center gap-1.5 h-7 px-2.5 rounded-lg border text-xs font-medium transition-colors ${
+                          active
+                            ? 'border-zinc-300 dark:border-zinc-600 bg-zinc-100 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100'
+                            : 'border-zinc-200 dark:border-zinc-800 text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-200'
+                        }`}
+                      >
+                        <Icon size={13} className={config.color} />
+                        {config.label}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
 
               {/* DESCRIÇÃO */}
@@ -659,24 +784,61 @@ export function TaskDetailDrawer({
                   </select>
                 </div>
 
-                <div className='flex items-center justify-between gap-2'>
+                {/* Projeto */}
+                <div className='relative flex items-center justify-between gap-2' ref={projectPickerRef}>
                   <span className='flex items-center gap-2 text-xs font-medium text-zinc-500 dark:text-zinc-400'>
-                    <Target size={13} />
+                    <FolderDot size={13} />
                     Projeto
                   </span>
-                  <select
-                    value={displayTask.project}
-                    onChange={(e) => handlePropertyUpdate('project', e.target.value)}
-                    className={selectClass}
+                  <button
+                    type='button'
+                    onClick={() => setIsProjectPickerOpen((v) => !v)}
+                    className='h-8 w-44 px-2.5 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-xs font-medium text-zinc-800 dark:text-zinc-200 flex items-center justify-between gap-1.5 hover:border-zinc-300 dark:hover:border-zinc-700 transition-colors text-left'
                   >
-                    {projects
-                      .filter((p) => p.id !== 'all')
-                      .map((p) => (
-                        <option key={p.id} value={p.id}>
-                          {p.name}
-                        </option>
-                      ))}
-                  </select>
+                    <span className='truncate'>
+                      {currentProject ? currentProject.displayLabel : 'Selecionar'}
+                    </span>
+                    <ChevronDown size={12} className='text-zinc-400 shrink-0' />
+                  </button>
+
+                  {isProjectPickerOpen && (
+                    <div className='absolute right-0 top-9 w-64 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl shadow-2xl p-1.5 z-50 animate-in fade-in zoom-in-95'>
+                      <div className='max-h-60 overflow-y-auto custom-scrollbar space-y-2'>
+                        {groupedProjects.map((group) => (
+                          <div key={group.workspace} className='space-y-0.5'>
+                            <div className='flex items-center gap-1.5 px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-zinc-400 dark:text-zinc-500'>
+                              <Layers size={10} />
+                              {group.workspace}
+                            </div>
+                            {group.items.map((p) => {
+                              const isSelected = p.id === displayTask.project || p.name === displayTask.project;
+                              return (
+                                <button
+                                  key={p.id}
+                                  type='button'
+                                  onClick={() => {
+                                    handlePropertyUpdate('project', p.id);
+                                    setIsProjectPickerOpen(false);
+                                  }}
+                                  className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-colors text-left ${
+                                    isSelected
+                                      ? 'bg-blue-50 text-blue-700 dark:bg-blue-500/15 dark:text-blue-300 font-medium'
+                                      : 'text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800'
+                                  }`}
+                                >
+                                  <div className='flex items-center gap-2 truncate'>
+                                    <FolderDot size={12} className={isSelected ? 'text-blue-500' : 'text-zinc-400'} />
+                                    <span className='truncate'>{p.scopeLabel}</span>
+                                  </div>
+                                  {isSelected && <Check size={12} className='text-blue-500 shrink-0 ml-1' />}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 <div className='flex items-center justify-between gap-2'>
