@@ -45,14 +45,23 @@ chmod +x "$DEST/deskreport"
 ln -sf "$DEST/deskreport" "$HOME/.local/bin/deskreport"
 
 # No Linux o DeskReport aparece no menu de aplicativos e abre como app, sem terminal
+# Com o app da bandeja baixado da última release, o menu abre ele. Sem rede para o GitHub, abre o widget
 if [ "$(uname -s)" = "Linux" ]; then
+  EXEC="\"$DEST/deskreport\" widget"
+  if curl -fsSL "https://github.com/4gocompany/deskreport/releases/latest/download/DeskReport-linux.AppImage" -o "$DEST/DeskReport.AppImage.part"; then
+    mv "$DEST/DeskReport.AppImage.part" "$DEST/DeskReport.AppImage"
+    chmod +x "$DEST/DeskReport.AppImage"
+    EXEC="\"$DEST/DeskReport.AppImage\""
+  else
+    rm -f "$DEST/DeskReport.AppImage.part"
+  fi
   mkdir -p "$HOME/.local/share/applications"
   cat > "$HOME/.local/share/applications/deskreport.desktop" <<EOF
 [Desktop Entry]
 Type=Application
 Name=DeskReport
 Comment=Agentes do DeskReport nesta máquina
-Exec="$DEST/deskreport" widget
+Exec=$EXEC
 Icon=$DEST/icon.svg
 Terminal=false
 Categories=Development;

@@ -1,0 +1,40 @@
+# Gera o app da bandeja para Linux, Windows e macOS e publica no Releases do GitHub
+# Dispara com uma tag desktop-v*, ex.: git tag desktop-v0.1.0 && git push origin desktop-v0.1.0
+# O install.sh baixa sempre o da última release
+name: Desktop
+
+on:
+  push:
+    tags: ['desktop-v*']
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm dist --publish never
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            desktop/release/DeskReport-linux.AppImage
+            desktop/release/DeskReport-windows.exe
+            desktop/release/DeskReport-macos.dmg
+          fail_on_unmatched_files: false
