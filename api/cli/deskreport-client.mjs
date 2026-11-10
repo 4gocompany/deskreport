@@ -39,37 +39,25 @@ const roleCatalog = {
 const roleNames = Object.keys(roleCatalog);
 const defaultRoles = { antigravity: ['architecture', 'review'], claude: ['engineering', 'devops'], opencode: ['qa', 'documentation'] };
 
-// Modelos estritos suportados por harness (sem entrada de texto livre)
+// Modelos que cada harness aceita no --model. No Claude Code os apelidos sempre apontam para a versão mais nova
+// Os outros harnesses mudam de modelo com frequência: ficam no padrão da CLI e o widget mantém o modelo que já estava fixado
 const harnessModelCatalog = {
   claude: [
     { id: 'default', label: 'Padrão da CLI' },
-    { id: 'claude-3-5-sonnet', label: 'Claude 3.5 Sonnet (Engenharia e Raciocínio)' },
-    { id: 'claude-3-5-haiku', label: 'Claude 3.5 Haiku (Rápido e Econômico)' },
-    { id: 'claude-3-opus', label: 'Claude 3 Opus (Análise Profunda)' },
+    { id: 'opus', label: 'Opus (análise profunda)' },
+    { id: 'sonnet', label: 'Sonnet (engenharia)' },
+    { id: 'haiku', label: 'Haiku (rápido e econômico)' },
   ],
-  opencode: [
-    { id: 'default', label: 'Padrão da CLI' },
-    { id: 'claude-3-5-sonnet', label: 'Claude 3.5 Sonnet' },
-    { id: 'claude-3-5-haiku', label: 'Claude 3.5 Haiku' },
-    { id: 'gpt-4o', label: 'GPT-4o' },
-    { id: 'gpt-4o-mini', label: 'GPT-4o Mini' },
-  ],
-  antigravity: [
-    { id: 'default', label: 'Padrão da CLI' },
-    { id: 'gemini-1.5-pro', label: 'Gemini 1.5 Pro (Arquitetura e Contexto Longo)' },
-    { id: 'gemini-1.5-flash', label: 'Gemini 1.5 Flash (Leve e Rápido)' },
-  ],
-  codex: [
-    { id: 'default', label: 'Padrão da CLI' },
-    { id: 'o3-mini', label: 'o3-mini' },
-    { id: 'gpt-4o', label: 'GPT-4o' },
-  ],
-  gemini: [
-    { id: 'default', label: 'Padrão da CLI' },
-    { id: 'gemini-1.5-pro', label: 'Gemini 1.5 Pro' },
-    { id: 'gemini-1.5-flash', label: 'Gemini 1.5 Flash' },
-  ],
+  opencode: [{ id: 'default', label: 'Padrão da CLI' }],
+  antigravity: [{ id: 'default', label: 'Padrão da CLI' }],
+  codex: [{ id: 'default', label: 'Padrão da CLI' }],
+  gemini: [{ id: 'default', label: 'Padrão da CLI' }],
 };
+
+// Modelo de cargo fora do catálogo (ex.: IDs antigos salvos no config) vira o padrão da CLI
+function catalogModel(harness, model) {
+  return harnessModelCatalog[harness]?.some((m) => m.id === model) ? model : 'default';
+}
 
 function defaultRoleAssignments(detected = []) {
   const assignments = {};
@@ -83,7 +71,7 @@ function defaultRoleAssignments(detected = []) {
     } else if (hasOpencode && (role === 'qa' || role === 'documentation')) {
       assignments[role] = { harness: 'opencode', model: 'default' };
     } else if (hasClaude) {
-      const model = (role === 'qa' || role === 'documentation') ? 'claude-3-5-haiku' : 'claude-3-5-sonnet';
+      const model = role === 'qa' || role === 'documentation' ? 'haiku' : 'sonnet';
       assignments[role] = { harness: 'claude', model };
     } else {
       const first = detected[0] || 'claude';
@@ -195,7 +183,7 @@ async function setup() {
       const opt = await rl.question('Escolha uma opção (1-3) [1]: ');
       if (opt.trim() === '2') {
         const assignments = {};
-        for (const role of roleNames) assignments[role] = { harness: 'claude', model: 'claude-3-5-haiku' };
+        for (const role of roleNames) assignments[role] = { harness: 'claude', model: 'haiku' };
         saveConfig({ roleAssignments: assignments, agentRoles: deriveAgentRoles(assignments) });
         console.log('Configurado: Modo econômico com Claude Haiku.');
       } else if (opt.trim() !== '3') {
@@ -287,6 +275,9 @@ function connectSocket() {
       machineName: os.hostname(),
       workspaceRoot: workspaceRoot || '',
     });
+    for (const agent of enabledAgents) {
+      sendTelemetry({ agent, state: running[agent] ? 'working' : 'idle', action: running[agent] ? `Trabalhando: ${running[agent].title}` : 'Disponível' });
+    }
     broadcast();
     // Retoma a fila salva e reenvia o alerta de quem continua travado
     for (const agent of agentNames) startNext(agent);
@@ -465,10 +456,11 @@ async function syncProjects(res) {
   const folders = workspaceFolders();
   if (folders.length === 0) return sendJson(res, 400, { error: 'Nenhuma pasta no Workspace para sincronizar' });
 
+  const workspace = workspaceRoot ? path.basename(workspaceRoot) : '';
   try {
-    await mcpApi('POST', '/agents/mcp/projects/sync', { folders });
-    console.log(`${folders.length} pastas sincronizadas como projetos`);
-    sendJson(res, 200, { folders });
+    await mcpApi('POST', '/agents/mcp/projects/sync', { folders, workspace });
+    console.log(`${folders.length} pastas de ${workspace} sincronizadas como projetos`);
+    sendJson(res, 200, { folders, workspace });
   } catch (error) {
     sendJson(res, 400, { error: error.message });
   }
@@ -542,9 +534,7 @@ function changeRoleAssignments(req, res) {
     for (const role of roleNames) {
       const item = data.assignments[role];
       if (item && agentNames.includes(item.harness)) {
-        const allowedModels = harnessModelCatalog[item.harness]?.map((m) => m.id) || ['default'];
-        const model = allowedModels.includes(item.model) ? item.model : 'default';
-        roleAssignments[role] = { harness: item.harness, model };
+        roleAssignments[role] = { harness: item.harness, model: catalogModel(item.harness, item.model) };
       }
     }
 
@@ -880,6 +870,7 @@ function widgetState() {
       model: config.models?.[agent] || '',
       quota: quotas[agent] ? Math.round(quotas[agent].used * 100) : null,
       ...agents[agent],
+      alert: alerts[agent]?.message || '',
     })),
     catalog: agentNames.map((agent) => ({
       agent,
@@ -1126,10 +1117,40 @@ function agentCommand(agent, prompt, cwd, stream = false, session, suggestedMode
   const output = stream ? ['--output-format', 'stream-json', '--verbose'] : json;
   const resume = session?.externalId ? ['--resume', session.externalId] : [];
   const addDir = gitDir ? ['--add-dir', gitDir] : [];
-  const allowed = ['mcp__deskreport', 'WebFetch', 'WebSearch', `Read(${absoluteRule(attachmentsDir)}/**)`].join(',');
-  const sandbox = JSON.stringify({ sandbox: { enabled: true, autoAllowBashIfSandboxed: true, allowUnsandboxedCommands: false } });
-  return ['claude', ['--permission-mode', 'acceptEdits', '--allowedTools', allowed, '--settings', sandbox, ...addDir, ...resume, ...output, ...model, '-p', prompt]];
+  const commands = claudeSandboxReady() ? hostCommands : [...hostCommands, ...devCommands];
+  const allowed = ['mcp__deskreport', 'WebFetch', 'WebSearch', `Read(${absoluteRule(attachmentsDir)}/**)`, ...commands.map((command) => `Bash(${command})`)].join(',');
+  // Push e deploy só quando uma pessoa pedir
+  const denied = ['Bash(git push *)', 'Bash(vercel *)'].join(',');
+  return ['claude', ['--permission-mode', 'acceptEdits', '--allowedTools', allowed, '--disallowedTools', denied, '--settings', claudeSandbox, ...addDir, ...resume, ...output, ...model, '-p', prompt]];
 }
+
+// Na sandbox do Claude Code a rede começa fechada e, no Linux, o localhost é só do comando.
+// Sem isso pnpm install, Prisma no banco local e docker compose falham e a tarefa fica pela metade
+const hostCommands = ['pnpm prisma *', 'npx prisma *', 'pnpm exec prisma *', 'docker compose *'];
+
+// No Linux a sandbox precisa do bubblewrap e do socat. Sem eles o Claude Code roda sem sandbox
+// e nega em silêncio todo Bash fora da lista, então build, testes e git ficam de fora e a tarefa para no meio
+function claudeSandboxReady() {
+  if (process.platform === 'darwin') return true;
+  if (process.platform !== 'linux') return false;
+  const dirs = agentPath().split(path.delimiter).filter(Boolean);
+  return ['bwrap', 'socat'].every((bin) => dirs.some((dir) => isFile(path.join(dir, bin))));
+}
+
+// Sem sandbox, libera só os comandos do dia a dia de desenvolvimento. O git push continua negado
+const devCommands = ['pnpm *', 'npm *', 'npx *', 'node *', 'git *', 'tsc *'];
+const claudeSandbox = JSON.stringify({
+  sandbox: {
+    enabled: true,
+    autoAllowBashIfSandboxed: true,
+    allowUnsandboxedCommands: false,
+    excludedCommands: hostCommands,
+    network: {
+      allowedDomains: ['registry.npmjs.org', '*.npmjs.org', 'registry.yarnpkg.com', 'github.com', '*.github.com', '*.githubusercontent.com', '*.prisma.sh'],
+    },
+    filesystem: { allowWrite: ['~/.local/share/pnpm', '~/.cache', '~/.npm', '/tmp'] },
+  },
+});
 
 // Regra de permissão do Claude Code com caminho absoluto começa com //. No Windows C:\\pasta vira //c/pasta
 function absoluteRule(dir) {
@@ -1137,12 +1158,22 @@ function absoluteRule(dir) {
   return `/${posix}`;
 }
 
-// Pasta do projeto: só uma subpasta que existe direto na raiz do Workspace, conferida pelo caminho real para link simbólico não escapar
+// Pasta do projeto: subpasta direta, qualificada ("workspace / pasta") ou raiz do workspace (tarefas full-stack/ambos)
 function projectDir(folder) {
-  if (!workspaceRoot || typeof folder !== 'string' || !/^[\w-][\w.-]*$/.test(folder)) return '';
+  if (!workspaceRoot || typeof folder !== 'string') return '';
+  const trimmed = folder.trim();
+  const root = realpathSync(workspaceRoot);
+  const wsName = path.basename(root);
+
+  // Se o projeto for a própria raiz do workspace (tarefas que precisam de ambos os subprojetos)
+  if (!trimmed || trimmed === '.' || trimmed === 'root' || trimmed === 'raiz' || trimmed === wsName || trimmed === `${wsName} / raiz` || trimmed === `${wsName} / todos`) {
+    return root;
+  }
+
+  const cleanFolder = trimmed.includes('/') ? trimmed.split('/').pop().trim() : trimmed;
+  if (!/^[\w-][\w.-]*$/.test(cleanFolder)) return '';
   try {
-    const root = realpathSync(workspaceRoot);
-    const dir = realpathSync(path.join(root, folder));
+    const dir = realpathSync(path.join(root, cleanFolder));
     return path.dirname(dir) === root && statSync(dir).isDirectory() ? dir : '';
   } catch {
     return '';
@@ -1219,7 +1250,8 @@ async function runTask(task) {
   let assignedModel = '';
   if (task.role && config.roleAssignments?.[task.role]) {
     const assign = config.roleAssignments[task.role];
-    if (assign.model && assign.model !== 'default') assignedModel = assign.model;
+    const model = catalogModel(assign.harness, assign.model);
+    if (model !== 'default') assignedModel = model;
   }
   task.model = assignedModel || config.models?.[task.agent] || task.suggestedModel || task.model || '';
   console.log(`Rodando ${task.agent} em ${cwd} para a tarefa ${task.taskId}`);
@@ -1229,6 +1261,12 @@ async function runTask(task) {
   sendTelemetry({ agent: task.agent, state: 'working', project: path.basename(cwd), action: `Iniciando: ${task.title}`, taskId: task.taskId, model: task.model });
 
   await downloadAttachments(task);
+
+  // Fotografia do repositório antes do agente: o comentário final lista só o que esta execução mexeu
+  const startedAt = Date.now();
+  const statusBefore = gitStatusLines(cwd);
+  const stage = taskStage(task, cwd);
+  const denials = [];
 
   const stream = task.agent === 'claude';
   const [bin, child] = startAgent(task.agent, buildPrompt(task, cwd), cwd, { DESKREPORT_TASK_ID: task.taskId, DESKREPORT_MODEL: task.model }, stream, undefined, task.suggestedModel);
@@ -1322,7 +1360,11 @@ async function runTask(task) {
         // O resultado traz o total certo da execução
         if (event.usage) task.tokens = startTokens + newTokens(event.usage);
         task.contextLimit = contextLimit(event.modelUsage) || task.contextLimit;
-        if (event.result) output = String(event.result).slice(-4000);
+        if (event.result) output = String(event.result);
+        for (const denial of event.permission_denials || []) {
+          const input = denial.tool_input || {};
+          denials.push(`${denial.tool_name} ${input.command || input.file_path || input.url || ''}`.trim().slice(0, 200));
+        }
       }
       if (event.type === 'rate_limit_event') readQuota(task.agent, event.rate_limit_info, stopForQuota);
     }
@@ -1336,7 +1378,7 @@ async function runTask(task) {
     delete stoppers[task.taskId];
     finish(task, 1, `Não foi possível rodar ${bin}: ${error.message}`);
   });
-  child.on('close', (code) => {
+  child.on('close', async (code) => {
     clearTimeout(timer);
     clearTimeout(killTimer);
     delete stoppers[task.taskId];
@@ -1358,12 +1400,18 @@ async function runTask(task) {
       switchProvider(task);
       return;
     }
+    const touchedFiles = changedSince(cwd, statusBefore, startedAt);
+    // Fatos conferidos pelo runner, para o resumo do agente não esconder bloqueio nem trabalho que não aconteceu
+    const facts = [];
+    if (denials.length > 0 && task.agent === 'claude' && !claudeSandboxReady()) {
+      facts.push('A sandbox do Claude Code está desligada nesta máquina (falta bwrap ou socat). Instale os dois para liberar os demais comandos com segurança.');
+    }
+    if (denials.length > 0) facts.push(`Bloqueado pelas permissões do DeskReport:\n${denials.filter((d, i) => denials.indexOf(d) === i).map((d) => `- ${d}`).join('\n')}`);
+    if (stage === 'implement' && code === 0 && !stoppedByUser && touchedFiles.length === 0) facts.push('Aviso do DeskReport: nenhum arquivo foi alterado nesta execução.');
     const summary = cleanSummary([stopReason, output.trim()].filter(Boolean).join('\n\n'));
-    execFile('git', ['status', '-s', '--', '.'], { cwd }, (error, stdout) => {
-      const touchedFiles = error ? [] : stdout.split('\n').map((line) => line.trim()).filter(Boolean);
-      // Parada pelo usuário nunca conta como sucesso, mesmo se o agente sair com 0
-      finish(task, stoppedByUser ? 1 : code ?? 1, summary.slice(-3000), touchedFiles, stoppedByUser);
-    });
+    const report = [fitSummary(summary, stream), ...facts].filter(Boolean).join('\n\n');
+    // Parada pelo usuário nunca conta como sucesso, mesmo se o agente sair com 0
+    finish(task, stoppedByUser ? 1 : code ?? 1, report, touchedFiles, stoppedByUser);
   });
 }
 
@@ -1616,7 +1664,7 @@ async function classifyWithJev(task) {
     signal: AbortSignal.timeout(15_000),
     body: JSON.stringify({
       model: '~typesafe/jev-latest',
-      state: { title: task.title || '', description: plainText(task.description || ''), tags: task.tags || [] },
+      state: { title: task.title || '', description: plainText([task.description, task.spec].filter(Boolean).join('\n\n')), tags: task.tags || [] },
       questions: {
         complexity: {
           type: 'choice',
@@ -1778,10 +1826,55 @@ const yagniNote = [
   '- Encerre a resposta com no máximo 2 ou 3 frases diretas sobre o que foi feito.',
 ].join('\n');
 
+// Evita que o agente invente ou declare pronto o que não conferiu, e que pare em silêncio quando algo for bloqueado
+const verifyNote = [
+  'Regras de verificação:',
+  '- Não afirme nada que não conferiu. Antes de citar arquivo, função, rota, flag, pacote ou modelo, confira no código ou rodando o comando. Se não souber, diga que não sabe.',
+  '- Só diga que terminou depois de rodar a verificação do projeto (build, typecheck ou testes) e ela passar. Informe numa linha o comando e o resultado.',
+  '- Se um comando for bloqueado por permissão ou sandbox, não tente contornar. Faça o que der, deixe o código consistente e liste em Impedimentos o comando exato que foi bloqueado.',
+  '- Mexa só no que a tarefa pede e siga o padrão do projeto: Prettier, lint e o estilo dos arquivos vizinhos.',
+].join('\n');
+
+// Skill de cada tipo de tarefa (feature, bugfix, hotfix, security, refactor, documentation)
+const typeNotes = {
+  bugfix: [
+    'Tipo da tarefa: Bugfix.',
+    '- Reproduza a falha ou ache o trecho exato que causa o bug antes de alterar o código.',
+    '- Corrija a causa raiz com a menor mudança possível.',
+    '- Se o projeto tiver testes, inclua um que falharia sem a correção.',
+  ],
+  hotfix: [
+    'Tipo da tarefa: Hotfix de produção.',
+    '- Resolva só a parada de serviço, com o menor número de linhas alteradas.',
+    '- Proibido renomear arquivos, refatorar de oportunidade ou adicionar dependências.',
+  ],
+  security: [
+    'Tipo da tarefa: Segurança.',
+    '- Toda query, rota, fila, cache ou webhook amarra o dado ao tenant (companyId ou organizationId). Nunca buscar ou alterar só pelo id (anti-IDOR).',
+    '- Assinatura de webhook e comparação de token usam crypto.timingSafeEqual.',
+    '- Segredos, tokens e chaves nunca vão para log, resposta de erro, front-end ou commit.',
+    '- URL informada por usuário bloqueia IP privado, link-local e loopback antes de qualquer chamada (anti-SSRF).',
+    '- Liste cada achado com arquivo, linha, risco e correção.',
+  ],
+  refactor: [
+    'Tipo da tarefa: Refatoração.',
+    '- O comportamento continua idêntico. Rode build e testes antes e depois.',
+    '- Reduza complexidade e remova código morto, sem mudar contratos de API.',
+  ],
+  documentation: [
+    'Tipo da tarefa: Documentação.',
+    '- Altere só documentação. Confira cada exemplo de código e cada rota contra o código atual.',
+  ],
+};
+
+function typeNote(type) {
+  return typeNotes[type]?.join('\n') || '';
+}
+
 // Tarefa interrompida (cota ou client reiniciado) volta com o aviso e o último progresso
 function buildPrompt(task, cwd) {
   const yagni = config.yagniMode ? yagniNote : '';
-  const prompt = [taskPrompt(task, cwd), safetyNote, yagni, teamNote(task.agent), gitContext(cwd), fileLinkNote(cwd)].filter(Boolean).join('\n\n');
+  const prompt = [taskPrompt(task, cwd), typeNote(task.type), verifyNote, safetyNote, yagni, teamNote(task.agent), gitContext(cwd), fileLinkNote(cwd)].filter(Boolean).join('\n\n');
   if (!task.resumed) return prompt;
   return [
     prompt,
@@ -1861,6 +1954,42 @@ function teamNote(agent) {
   ].join('\n');
 }
 
+// O comentário guarda até 4.000 caracteres e os fatos do runner vão depois do resumo.
+// O resultado final do Claude vem limpo: corta no fim. Nos outros o resumo fica no fim da saída: corta no começo, sem partir frase
+function fitSummary(summary, fromResult, max = 3200) {
+  if (summary.length <= max) return summary;
+  if (fromResult) {
+    const head = summary.slice(0, max);
+    const end = head.lastIndexOf('\n\n');
+    return `${end > 0 ? head.slice(0, end) : head}\n\n(Resumo cortado. O texto completo está no terminal da tarefa.)`;
+  }
+  const tail = summary.slice(-max);
+  const start = tail.indexOf('\n\n');
+  return start >= 0 ? tail.slice(start + 2) : tail;
+}
+
+function gitStatusLines(cwd) {
+  try {
+    return execFileSync('git', ['status', '-s', '--', '.'], { cwd, encoding: 'utf8', timeout: 10_000 }).split('\n').filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+// Arquivo novo na lista do git ou salvo depois do início da execução. Pendências de outras tarefas ficam de fora
+function changedSince(cwd, before, startedAt) {
+  return gitStatusLines(cwd)
+    .filter((line) => {
+      if (!before.includes(line)) return true;
+      try {
+        return statSync(path.join(cwd, line.slice(3).split(' -> ').pop())).mtimeMs >= startedAt;
+      } catch {
+        return false;
+      }
+    })
+    .map((line) => line.trim());
+}
+
 // Pasta sem alterações pendentes ainda não tem o que revisar
 function hasChanges(cwd) {
   try {
@@ -1870,7 +1999,27 @@ function hasChanges(cwd) {
   }
 }
 
+function hasRole(agent, role) {
+  return Boolean(config.agentRoles?.[agent]?.includes(role));
+}
+
+// Quem só especifica ou revisa não altera código: Arquitetura, Code Review e Suporte sem um cargo que implementa
+function canEdit(agent) {
+  const roles = config.agentRoles?.[agent] || [];
+  return roles.length === 0 || roles.some((role) => ['engineering', 'devops', 'qa', 'documentation'].includes(role));
+}
+
+// Etapa da esteira pelo cargo do agente nesta máquina, e não pelo nome dele
+function taskStage(task, cwd) {
+  if (task.mode === 'comment') return 'comment';
+  if (canEdit(task.agent)) return 'implement';
+  if (hasRole(task.agent, 'review') && hasChanges(cwd)) return 'review';
+  if (hasRole(task.agent, 'architecture')) return 'spec';
+  return 'review';
+}
+
 function taskPrompt(task, cwd) {
+  const stage = taskStage(task, cwd);
   const description = task.description ? external(plainText(task.description)) : '';
   const title = external(plainText(task.title || ''));
   // Os comentários mais recentes, de pessoas e de agentes. Os antigos ficam no deskreport_get_task
@@ -1879,7 +2028,10 @@ function taskPrompt(task, cwd) {
   // Etapa passada por outro agente da esteira com @
   const request = task.mode !== 'comment' && task.comment ? `Pedido do agente anterior para esta etapa:\n${external(plainText(task.comment))}` : '';
 
-  if (task.mode === 'comment') {
+  if (stage === 'comment') {
+    const editRule = canEdit(task.agent)
+      ? 'Se ele pedir implementação, correção, ajuste ou execução, faça a alteração no código desta pasta e responda com um resumo curto do que foi feito.'
+      : 'Pelo seu cargo você não altera código. Se o pedido exigir implementação, responda e mencione com @ o agente de Engenharia dizendo o que ele deve fazer.';
     return [
       `Tarefa do DeskReport:\n${title}`,
       description,
@@ -1888,14 +2040,14 @@ function taskPrompt(task, cwd) {
       `Novo comentário para você:\n${external(plainText(task.comment || ''))}`,
       [
         'Avalie o pedido do comentário antes de agir.',
-        'Se ele pedir implementação, correção, ajuste ou execução, faça a alteração no código desta pasta e responda com um resumo curto do que foi feito.',
+        editRule,
         'Se for só uma pergunta, alinhamento ou revisão que não exige alterar código, apenas responda diretamente sem tocar nos arquivos.',
         'Responda em português. Esse texto vira a sua resposta no comentário da tarefa.',
       ].join('\n'),
     ].filter(Boolean).join('\n\n');
   }
 
-  if (task.agent === 'antigravity' && !hasChanges(cwd)) {
+  if (stage === 'spec') {
     return [
       `Especificação da tarefa do DeskReport:\n${title}`,
       description,
@@ -1911,7 +2063,7 @@ function taskPrompt(task, cwd) {
     ].filter(Boolean).join('\n\n');
   }
 
-  if (task.agent === 'antigravity') {
+  if (stage === 'review') {
     return [
       `Code Review da tarefa do DeskReport:\n${title}`,
       description,
@@ -1921,6 +2073,7 @@ function taskPrompt(task, cwd) {
       [
         'Você é o revisor do time. Rode `git status -s -- .` e `git diff` nesta pasta e revise as alterações.',
         'Valide se o código atende a descrição da tarefa e os comentários acima.',
+        'Confira se o diff segue o padrão do projeto (Prettier, lint, estilo e visual dos arquivos vizinhos) e se mexeu só no que a tarefa pede.',
         'Confira as regras globais: nenhum travessão, nenhum Set do JavaScript, isolamento multi-tenant em toda query e rota (companyId ou organizationId), sem segredos em log ou resposta, e código simples sem camadas a mais.',
         'Não altere arquivos e não faça commit.',
         'Responda em português com um parecer objetivo: aprovado ou não, e a lista de problemas com arquivo e linha. Esse texto vira o comentário da tarefa.',
@@ -1936,7 +2089,7 @@ function taskPrompt(task, cwd) {
     notes,
     request,
     [
-      'Ao finalizar a tarefa, responda no final apenas com um comentário claro e direto em português do que foi feito e da regra de negócio ajustada.',
+      'Ao finalizar a tarefa, responda no final apenas com um comentário claro e direto em português do que foi feito e da regra de negócio ajustada, com no máximo 15 linhas.',
       'Nunca inclua no resumo final saídas de comandos (como $ cd, npx tsc, git diff, head), logs de terminal nem trechos longos de código.',
       'Se algo não foi feito ou apresentou problema, termine com uma seção Impedimentos explicando o motivo.',
       'Esse resumo final será o comentário publicado na tarefa.',
@@ -2045,6 +2198,11 @@ function schema(properties, required = []) {
 const taskRef = { type: 'string', description: 'UUID ou número da tarefa (3 ou #003)' };
 const statusField = { type: 'string', enum: ['backlog', 'todo', 'in-progress', 'review', 'done', 'release'] };
 const priorityField = { type: 'string', enum: ['low', 'medium', 'high', 'urgent'] };
+const typeField = {
+  type: 'string',
+  enum: ['feature', 'bugfix', 'hotfix', 'security', 'refactor', 'documentation'],
+  description: 'Tipo da tarefa, define as regras que o agente recebe ao executar. Padrão feature',
+};
 const projectField = { type: 'string', description: 'Id ou nome do projeto' };
 const taskFields = {
   title: { type: 'string' },
@@ -2052,6 +2210,7 @@ const taskFields = {
   project: projectField,
   status: statusField,
   priority: priorityField,
+  type: typeField,
   tags: { type: 'array', items: { type: 'string' } },
   assigneeIds: { type: 'array', items: { type: 'string' }, description: 'Ids de usuários da organização ou nome do agente (claude, opencode...)' },
 };
@@ -2364,8 +2523,8 @@ const widgetHtml = `<!doctype html>
   .working .action { color: var(--blue-text); }
   .model { display: flex; gap: 6px; align-items: center; }
   .model span { font-size: 11px; color: var(--faint); }
-  .model input { flex: 1; min-width: 0; font: 11px ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; outline: none; }
-  .model input:focus { border-color: var(--blue); }
+  .model input, .model select { flex: 1; min-width: 0; font: 11px ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; outline: none; }
+  .model input:focus, .model select:focus { border-color: var(--blue); }
 
   .alert { background: var(--amber-soft); color: var(--amber); border-radius: 12px; padding: 12px 14px; font-size: 12px; display: flex; flex-direction: column; gap: 8px; }
   .alert button { align-self: flex-start; background: var(--amber); color: #1a1405; border: 0; border-radius: 8px; padding: 6px 10px; font-size: 11px; font-weight: 600; cursor: pointer; }
@@ -2466,14 +2625,6 @@ const widgetHtml = `<!doctype html>
             <span class="row-text"><strong>Modo Econômico (YAGNI)</strong><span>Edições cirúrgicas e economia de tokens</span></span>
             <span class="switch"><input id="yagniToggle" type="checkbox"></span>
           </label>
-          <div class="row" style="flex-direction:column;align-items:stretch;gap:8px">
-            <span class="row-text"><strong>Auditoria de Segurança</strong><span>Baseado no Cloudflare security-audit-skill</span></span>
-            <div style="display:flex;gap:8px">
-              <button id="runAudit" class="ghost small" style="flex:1">Auditar Código Agora</button>
-              <button id="installSkill" class="ghost small" style="flex:1">Instalar no Projeto</button>
-            </div>
-            <div id="auditResult" class="notice" hidden style="font-size:11px;white-space:pre-wrap"></div>
-          </div>
         </div>
 
         <div class="label">Máquina</div>
@@ -2808,15 +2959,23 @@ const widgetHtml = `<!doctype html>
     if (a.action) card.append(el('div', 'action', a.action));
 
     const model = el('form', 'model');
-    const input = el('input');
-    input.value = a.model;
-    input.placeholder = 'padrão';
-    input.setAttribute('aria-label', 'Modelo do ' + a.name);
-    model.append(el('span', '', 'Modelo'), input, el('button', 'ghost small', paused ? 'Trocar e retomar' : 'Usar'));
+    const select = el('select');
+    select.setAttribute('aria-label', 'Modelo do ' + a.name);
+    const catalog = (state.harnessModelCatalog && state.harnessModelCatalog[a.agent]) || [{ id: 'default', label: 'Padrão da CLI' }];
+    // Modelo fixado antes do catálogo continua na lista para não ser trocado sem querer
+    const options = catalog.map(function (m) { return { value: m.id === 'default' ? '' : m.id, label: m.label }; });
+    if (a.model && !options.some(function (o) { return o.value === a.model; })) options.push({ value: a.model, label: a.model });
+    options.forEach(function (o) {
+      const opt = el('option', '', o.label);
+      opt.value = o.value;
+      opt.selected = o.value === (a.model || '');
+      select.append(opt);
+    });
+    model.append(el('span', '', 'Modelo'), select, el('button', 'ghost small', paused ? 'Trocar e retomar' : 'Usar'));
     model.onsubmit = async function (event) {
       event.preventDefault();
-      input.blur();
-      const error = await postJson('/config/models', { agent: a.agent, model: input.value });
+      select.blur();
+      const error = await postJson('/config/models', { agent: a.agent, model: select.value });
       if (error) window.alert(error);
     };
     card.append(model);
@@ -2909,45 +3068,6 @@ const widgetHtml = `<!doctype html>
     };
   }
 
-  const runAudit = document.getElementById('runAudit');
-  const auditResult = document.getElementById('auditResult');
-  if (runAudit) {
-    runAudit.onclick = async function () {
-      runAudit.disabled = true;
-      runAudit.textContent = 'Auditando...';
-      try {
-        const res = await fetch('/skills/audit', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
-        const data = await res.json();
-        auditResult.hidden = false;
-        auditResult.textContent = data.summary + (data.findings?.length ? '\n' + data.findings.map(function (f) { return '• [' + f.file + ':' + f.line + '] ' + f.message; }).join('\n') : '');
-      } catch (e) {
-        auditResult.hidden = false;
-        auditResult.textContent = 'Erro ao executar auditoria: ' + e.message;
-      }
-      runAudit.disabled = false;
-      runAudit.textContent = 'Auditar Código Agora';
-    };
-  }
-
-  const installSkill = document.getElementById('installSkill');
-  if (installSkill) {
-    installSkill.onclick = async function () {
-      installSkill.disabled = true;
-      installSkill.textContent = 'Instalando...';
-      try {
-        const res = await fetch('/skills/install', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ skill: 'security-audit' }) });
-        const data = await res.json();
-        auditResult.hidden = false;
-        auditResult.textContent = data.ok ? 'Skill instalada com sucesso em .agents/skills/security-audit/SKILL.md' : (data.error || 'Falha ao instalar');
-      } catch (e) {
-        auditResult.hidden = false;
-        auditResult.textContent = 'Erro ao instalar: ' + e.message;
-      }
-      installSkill.disabled = false;
-      installSkill.textContent = 'Instalar no Projeto';
-    };
-  }
-
   for (const button of document.querySelectorAll('nav button')) button.onclick = function () { openTab(button.dataset.tab); };
   document.getElementById('folder').onclick = function () { openPicker(state.workspaceRoot); };
   document.getElementById('changeFolder').onclick = function () { openPicker(state.workspaceRoot); };
@@ -3030,12 +3150,13 @@ async function runCliCommand(cmd) {
     if (sub === 'create') {
       const title = process.argv[4] && !process.argv[4].startsWith('--') ? process.argv[4] : getArg('--title');
       if (!title) {
-        console.error('Uso: deskreport task create "Título da tarefa" [--project <nome>] [--desc <desc>] [--priority <urgência>] [--assignee <agente>] [--dispatch]');
+        console.error('Uso: deskreport task create "Título da tarefa" [--project <nome>] [--desc <desc>] [--priority <urgência>] [--type <tipo>] [--assignee <agente>] [--dispatch]');
         process.exit(1);
       }
       const project = getArg('--project') || currentProject();
       const description = getArg('--desc') || getArg('--description');
       const priority = getArg('--priority') || 'medium';
+      const type = getArg('--type');
       const assignee = getArg('--assignee') || getArg('--agent');
 
       const data = {
@@ -3043,6 +3164,7 @@ async function runCliCommand(cmd) {
         description,
         project,
         priority,
+        type,
         assigneeIds: assignee ? [assignee] : undefined,
         agent: assignee || 'antigravity',
       };
@@ -3052,7 +3174,7 @@ async function runCliCommand(cmd) {
       console.log(`✓ Tarefa ${short} criada com sucesso.`);
       console.log(`  ID: ${created.id}`);
       console.log(`  Título: ${created.title}`);
-      console.log(`  Status: ${created.status} | Prioridade: ${created.priority}`);
+      console.log(`  Status: ${created.status} | Prioridade: ${created.priority} | Tipo: ${created.type}`);
 
       if (hasFlag('--dispatch') && assignee) {
         console.log(`Disparando execução para o agente ${assignee}...`);
@@ -3072,7 +3194,7 @@ async function runCliCommand(cmd) {
       const short = '#' + String(task.shortId).padStart(3, '0');
       console.log(`Tarefa ${short}: ${task.title}`);
       console.log(`ID: ${task.id}`);
-      console.log(`Status: ${task.status} | Prioridade: ${task.priority}`);
+      console.log(`Status: ${task.status} | Prioridade: ${task.priority} | Tipo: ${task.type || 'feature'}`);
       console.log(`Projeto: ${task.project}`);
       if (task.assignees?.length) console.log(`Responsáveis: ${task.assignees.map((a) => a.name).join(', ')}`);
       if (task.description) {
@@ -3164,6 +3286,9 @@ if (process.argv.includes('--background') && !process.env.DESKREPORT_BACKGROUND)
   enabledAgents = config.enabledAgents || detectedAgents;
   if (!config.enabledAgents) saveConfig({ enabledAgents });
   console.log(`Agentes instalados: ${detectedAgents.join(', ') || 'nenhum'}. Ativos: ${enabledAgents.join(', ') || 'nenhum'}`);
+  if (enabledAgents.includes('claude') && !claudeSandboxReady()) {
+    console.log('Sandbox do Claude Code indisponível (instale bwrap e socat). Comandos de desenvolvimento liberados sem sandbox.');
+  }
   loadState();
   // Só um client por máquina: se já tem um rodando, este só abre o widget
   if (!(await startLocalServer())) {
