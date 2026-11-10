@@ -1027,7 +1027,7 @@ function cleanSummary(raw) {
 function finish(task, exitCode, summary, touchedFiles = [], stopped = false, classification = null, sections = null, stage = null) {
   delete running[task.agent];
   saveState();
-  socket.emit('machine:task-finished', { taskId: task.taskId, agent: task.agent, mode: task.mode, handoff: Boolean(task.comment), exitCode, summary, touchedFiles, stopped, tokens: task.tokens, contextTokens: task.contextTokens, contextLimit: task.contextLimit, model: task.model, classification, stage, spec: sections?.spec, comment: sections?.comment, changelog: sections?.changelog });
+  socket.emit('machine:task-finished', { taskId: task.taskId, agent: task.agent, mode: task.mode, handoff: Boolean(task.comment), exitCode, summary, touchedFiles, stopped, tokens: task.tokens, contextTokens: task.contextTokens, contextLimit: task.contextLimit, model: task.model, classification, stage: stageRole(stage, task.agent) === 'qa' ? 'qa' : stage, spec: sections?.spec, comment: sections?.comment, changelog: sections?.changelog });
   notify(`${agentLabels[task.agent]} ${exitCode === 0 ? 'terminou' : 'parou'}: ${task.title}`);
   agents[task.agent] = { state: 'idle', action: exitCode === 0 ? 'Concluído' : `Parou com código ${exitCode}`, model: task.model };
   broadcast();
@@ -1464,7 +1464,7 @@ async function runTask(task) {
       facts.push('A sandbox do Claude Code está desligada nesta máquina (falta bwrap ou socat). Instale os dois para liberar os demais comandos com segurança.');
     }
     if (denials.length > 0) facts.push(`Bloqueado pelas permissões do DeskReport:\n${denials.filter((d, i) => denials.indexOf(d) === i).map((d) => `- ${d}`).join('\n')}`);
-    if (stage === 'implement' && code === 0 && !stoppedByUser && touchedFiles.length === 0) facts.push('Aviso do DeskReport: nenhum arquivo foi alterado nesta execução.');
+    if (stage === 'implement' && stageRole(stage, task.agent) !== 'qa' && code === 0 && !stoppedByUser && touchedFiles.length === 0) facts.push('Aviso do DeskReport: nenhum arquivo foi alterado nesta execução.');
     const summary = cleanSummary([stopReason, output.trim()].filter(Boolean).join('\n\n'));
     const sections = stoppedByUser ? null : parseSections(summary);
     const report = [sections ? fitSummary(sections.comment || '', true) : fitSummary(summary, stream), ...facts].filter(Boolean).join('\n\n');
