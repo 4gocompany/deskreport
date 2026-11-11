@@ -1,4 +1,4 @@
-import { Plus, Shield, X, Activity } from 'lucide-react';
+import { Plus, Shield, X, Activity, Trash2 } from 'lucide-react';
 import { Button } from '../../../components/ui/button';
 import { PermissionForm } from './permission-form';
 import { authClient } from '../../../lib/auth-client';
@@ -6,6 +6,10 @@ import { useState, useEffect } from 'react';
 import { useTenantStore } from '../../../store';
 import { useTenant } from '../../../hooks/useTenant';
 import { apiBase } from '../../../api/fetcher';
+import { List, ListAction, ListActions, ListRow } from '../../../components/ui/list';
+
+const memberColumns = '1fr 140px 72px';
+const roleLabels: Record<string, string> = { owner: 'Dono', admin: 'Administrador', member: 'Membro' };
 
 export function SecurityHub() {
   const { company_id } = useTenant();
@@ -165,61 +169,29 @@ export function SecurityHub() {
             </Button>
           </div>
 
-          <div className='overflow-hidden rounded-xl border border-neutral-200 dark:border-neutral-800'>
-            <table className='w-full text-left'>
-              <thead className='bg-neutral-50 dark:bg-neutral-800 text-[10px] text-neutral-400 font-bold border-b border-neutral-100 dark:border-neutral-800'>
-                <tr>
-                  <th className='px-6 py-4'>Membro</th>
-                  <th className='px-6 py-4'>Cargo</th>
-                  <th className='px-6 py-4'>Status</th>
-                  <th className='px-6 py-4 text-right'></th>
-                </tr>
-              </thead>
-              <tbody className='divide-y divide-neutral-100 dark:divide-neutral-800'>
-                {members.map((member) => (
-                  <tr key={member.id} className='group hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors'>
-                    <td className='px-6 py-4 flex items-center gap-3'>
-                      <div className='w-8 h-8 rounded-full bg-sky-100 dark:bg-sky-900/30 flex items-center justify-center font-bold text-sky-600 text-xs overflow-hidden border border-sky-200 dark:border-sky-800'>
-                        {member.user?.name ? member.user.name.charAt(0).toUpperCase() : '?'}
-                      </div>
-                      <div className='flex flex-col'>
-                        <span className='text-sm font-semibold text-neutral-800 dark:text-neutral-100'>{member.user?.name || member.email}</span>
-                        <span className='text-[10px] text-neutral-500'>{member.user?.email || member.email}</span>
-                      </div>
-                    </td>
-                    <td className='px-6 py-4'>
-                      <div className='flex items-center gap-2'>
-                        <Shield size={12} className='text-sky-500' />
-                        <span className='text-xs text-neutral-600 dark:text-neutral-400 font-medium capitalize'>{member.role}</span>
-                      </div>
-                    </td>
-                    <td className='px-6 py-4'>
-                      <span className='text-[10px] font-bold px-2 py-0.5 bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400 rounded-full'>
-                        Ativo
-                      </span>
-                    </td>
-                    <td className='px-6 py-4 text-right'>
-                      <Button
-                        size='icon'
-                        variant='ghost'
-                        className='h-8 w-8 text-neutral-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors'
-                        onClick={() => handleRemoveMember(member.id)}
-                      >
-                        <X size={16} />
-                      </Button>
-                    </td>
-                  </tr>
-                ))}
-                {members.length === 0 && (
-                  <tr>
-                    <td colSpan={4} className='px-6 py-8 text-center text-sm text-neutral-500'>
-                      Nenhum membro encontrado.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+          {members.length === 0 ? (
+            <p className='py-8 text-center text-sm text-neutral-500'>Nenhum membro encontrado.</p>
+          ) : (
+            <List columns={memberColumns} headers={['Membro', 'Cargo', '']}>
+              {members.map((member) => (
+                <ListRow key={member.id} columns={memberColumns}>
+                  <div className='flex items-center gap-2.5 min-w-0'>
+                    <span className='w-6 h-6 rounded-full bg-blue-100 dark:bg-blue-900/30 text-blue-600 text-[11px] font-semibold flex items-center justify-center shrink-0'>
+                      {member.user?.name ? member.user.name.charAt(0).toUpperCase() : '?'}
+                    </span>
+                    <span className='text-sm font-medium text-zinc-900 dark:text-zinc-100 truncate'>{member.user?.name || member.email}</span>
+                    <span className='text-xs text-zinc-400 truncate'>{member.user?.email || member.email}</span>
+                  </div>
+                  <span className='text-sm text-zinc-500'>{roleLabels[member.role] || member.role}</span>
+                  <ListActions>
+                    <ListAction title='Remover da organização' danger onClick={() => handleRemoveMember(member.id)}>
+                      <Trash2 size={14} />
+                    </ListAction>
+                  </ListActions>
+                </ListRow>
+              ))}
+            </List>
+          )}
         </div>
       )}
 

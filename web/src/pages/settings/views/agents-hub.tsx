@@ -4,6 +4,9 @@ import { Check, Copy } from 'lucide-react';
 import { agentProfile, useAgentsStore } from '../../tasks/use-agents';
 import { AgentAvatar } from '../../tasks/components/agent-avatar';
 import { Machine, useMachines } from '../../../hooks/useMachines';
+import { List, ListRow } from '../../../components/ui/list';
+
+const agentColumns = '220px 1fr 120px';
 
 const roleLabels: Record<string, string> = {
   architecture: 'Arquitetura',
@@ -69,39 +72,32 @@ export function AgentsHub() {
 
       <section className="space-y-3">
         <h3 className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">Time de agentes</h3>
-        <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 divide-y divide-zinc-200 dark:divide-zinc-800">
-          {agents.length === 0 && (
-            <p className="p-4 text-sm text-zinc-500">Nenhum agente conectado. Rode o deskreport setup na sua máquina para habilitar os agentes.</p>
-          )}
-          {agents.map((status) => {
-            const member = agentProfile(status.agent);
-            const working = status?.state === 'working';
-            return (
-              <div key={member.agent} className="flex items-center gap-4 p-4">
-                <AgentAvatar profile={member} className="w-10 h-10 rounded-full text-xs shrink-0" />
-                <div className="flex-1 overflow-hidden">
-                  <div className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
-                    {member.name}
-                    {member.nickname && <span className="ml-2 text-xs font-medium text-zinc-500">{member.label}</span>}
+        {agents.length === 0 ? (
+          <p className="text-sm text-zinc-500">Nenhum agente conectado. Rode o deskreport setup na sua máquina para habilitar os agentes.</p>
+        ) : (
+          <List columns={agentColumns} headers={['Agente', 'Cargo e máquinas', 'Estado']}>
+            {agents.map((status) => {
+              const member = agentProfile(status.agent);
+              const working = status?.state === 'working';
+              return (
+                <ListRow key={member.agent} columns={agentColumns}>
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <AgentAvatar profile={member} className="w-6 h-6 rounded-full text-[10px] shrink-0" />
+                    <span className="text-sm font-medium text-zinc-900 dark:text-zinc-100 truncate">{member.name}</span>
+                    {member.nickname && <span className="text-xs text-zinc-400 truncate">{member.label}</span>}
                   </div>
-                  <div className="text-xs text-zinc-500 truncate">
-                    {agentRoles(member.agent, machines) || 'Sem cargo nas máquinas'}
-                    {working && status.action ? `: ${[status.project, status.action].filter(Boolean).join(', ')}` : ''}
-                  </div>
-                </div>
-                <span
-                  className={`flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full ${working
-                    ? 'bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-300'
-                    : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-500'
-                    }`}
-                >
-                  <span className={`w-1.5 h-1.5 rounded-full ${working ? 'bg-blue-500 animate-pulse' : 'bg-emerald-500'}`} />
-                  {working ? 'Trabalhando' : 'Disponível'}
-                </span>
-              </div>
-            );
-          })}
-        </div>
+                  <span className="text-sm text-zinc-500 truncate">
+                    {working && status.action ? [status.project, status.action].filter(Boolean).join(', ') : agentRoles(member.agent, machines) || 'Sem cargo nas máquinas'}
+                  </span>
+                  <span className="flex items-center gap-1.5 text-xs text-zinc-500">
+                    <span className={`w-1.5 h-1.5 rounded-full ${working ? 'bg-blue-500 animate-pulse' : 'bg-zinc-400'}`} />
+                    {working ? 'Trabalhando' : 'Disponível'}
+                  </span>
+                </ListRow>
+              );
+            })}
+          </List>
+        )}
       </section>
     </div>
   );

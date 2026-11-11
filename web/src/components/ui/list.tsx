@@ -34,7 +34,7 @@ export function ListRow({ columns, onClick, children }: ListRowProps) {
   return (
     <div
       onClick={onClick}
-      className='group grid items-center px-4 h-11 border-b last:border-b-0 border-zinc-100 dark:border-zinc-800/60 hover:bg-zinc-50 dark:hover:bg-zinc-800/40 cursor-pointer transition-colors'
+      className={`group grid items-center px-4 h-11 border-b last:border-b-0 border-zinc-100 dark:border-zinc-800/60 hover:bg-zinc-50 dark:hover:bg-zinc-800/40 transition-colors ${onClick ? 'cursor-pointer' : ''}`}
       style={{ gridTemplateColumns: columns }}
     >
       {children}
