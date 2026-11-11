@@ -249,12 +249,12 @@ function BoardColumn({
       key={column.id}
       className='w-[310px] min-w-[310px] shrink-0 h-full flex flex-col border-r border-zinc-200 dark:border-zinc-800 last:border-r-0 bg-zinc-50/40 dark:bg-zinc-950/40'
     >
-      <div className='px-4 py-3 bg-white/80 dark:bg-zinc-900/80 border-b border-zinc-200 dark:border-zinc-800 sticky top-0 z-10 backdrop-blur-sm'>
-        <div className='flex items-center justify-between group/header'>
+      <div className='px-3 h-9 flex items-center bg-white dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800 sticky top-0 z-10'>
+        <div className='flex flex-1 items-center justify-between group/header'>
           <div className='flex items-center gap-2'>
             <div className={`w-2 h-2 rounded-full ${column.color.replace('text-', 'bg-')}`} />
             <h3 className='font-semibold text-zinc-900 dark:text-zinc-100 text-xs'>{column.title}</h3>
-            <span className='text-xs font-medium text-zinc-400 dark:text-zinc-500 px-1.5 py-0.5 rounded-full bg-zinc-100 dark:bg-zinc-800'>{counterTasks}</span>
+            <span className='text-xs text-zinc-400 dark:text-zinc-500'>{counterTasks}</span>
           </div>
           <Button variant='ghost' size='icon' className='h-6 w-6 text-zinc-400 opacity-0 group-hover/header:opacity-100 transition-opacity' onClick={onAdd}>
             <Plus size={14} />
