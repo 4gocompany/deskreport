@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Inbox, LayoutDashboard, MessageCircle, FolderDot, CheckCircle, Bell, Settings, LogOut, User, Circle, Building, Users2 } from 'lucide-react';
+import { Inbox, LayoutDashboard, FolderDot, CheckCircle, Bell, Settings, LogOut, User, Circle, Building, Users2 } from 'lucide-react';
 import { NavLink, useParams, useNavigate } from 'react-router-dom';
 import { SubmenuItem } from '../../store';
 import { useOrganization, useSession, authClient } from '../../lib/auth-client';
@@ -59,9 +59,7 @@ export function Navbar() {
                 <MenuNavLink to={`/${cId}/resume`} icon={<Inbox size={22} strokeWidth={2} />} label='Início' />
                 <MenuNavLink to={`/${cId}/dashboard`} icon={<LayoutDashboard size={22} strokeWidth={2} />} label='Painel' />
 
-                {isModuleEnabled('chat') && <MenuNavLink to={`/${cId}/chat`} icon={<MessageCircle size={22} strokeWidth={2} />} label='Conversas' />}
 
-                {/* {isModuleEnabled('automation') && <MenuNavLink to={`/${cId}/automation`} icon={<Zap size={22} strokeWidth={2} />} label='Automação' />} */}
 
                 <MenuNavLink to={`/${cId}/teams`} icon={<Users2 size={22} strokeWidth={2} />} label='Equipes' />
 

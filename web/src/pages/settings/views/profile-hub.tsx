@@ -1,9 +1,20 @@
+import { useState } from 'react';
 import { Save, Camera } from 'lucide-react';
 import { Button } from '../../../components/ui/button';
-import { useSession } from '../../../lib/auth-client';
+import { authClient, useSession } from '../../../lib/auth-client';
 
 export function ProfileHub() {
     const { data: session } = useSession();
+    const [name, setName] = useState<string>();
+    const [saving, setSaving] = useState(false);
+
+    async function save() {
+        const value = (name ?? session?.user?.name ?? '').trim();
+        if (!value) return;
+        setSaving(true);
+        await authClient.updateUser({ name: value });
+        setSaving(false);
+    }
 
     return (
         <div className="space-y-12 animate-slide-up pb-10">
@@ -24,9 +35,9 @@ export function ProfileHub() {
                         <h3 className="font-semibold text-neutral-900 dark:text-white text-lg">Informações Pessoais</h3>
                         <p className="text-xs text-neutral-500">Credenciais pessoais e foto de avatar</p>
                     </div>
-                    <Button size="md" className="gap-2">
+                    <Button size="md" className="gap-2" onClick={save} disabled={saving}>
                         <Save size={16} />
-                        Salvar Alterações
+                        {saving ? 'Salvando...' : 'Salvar Alterações'}
                     </Button>
                 </div>
                 <div className="bg-transparent mt-4">
@@ -43,19 +54,11 @@ export function ProfileHub() {
                         <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-6 w-full">
                             <div className="space-y-2">
                                 <label className="text-[10px] font-bold text-neutral-400">Nome Completo</label>
-                                <input type="text" defaultValue={session?.user?.name || ''} className="w-full bg-neutral-50 dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-lg px-4 py-3 text-sm focus:ring-4 focus:ring-sky-500/10 focus:border-sky-500 outline-none transition-all font-medium" />
+                                <input type="text" value={name ?? session?.user?.name ?? ''} onChange={(e) => setName(e.target.value)} className="w-full bg-neutral-50 dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-lg px-4 py-3 text-sm focus:ring-4 focus:ring-sky-500/10 focus:border-sky-500 outline-none transition-all font-medium" />
                             </div>
                             <div className="space-y-2">
                                 <label className="text-[10px] font-bold text-neutral-400">E-mail de Trabalho</label>
                                 <input type="email" defaultValue={session?.user?.email || ''} readOnly className="w-full bg-neutral-100 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-800 rounded-lg px-4 py-3 text-sm outline-none transition-all font-medium text-neutral-500 cursor-not-allowed" />
-                            </div>
-                            <div className="space-y-2">
-                                <label className="text-[10px] font-bold text-neutral-400">WhatsApp</label>
-                                <input type="tel" defaultValue="+55 (11) 98765-4321" className="w-full bg-neutral-50 dark:bg-neutral-800 border-neutral-200 dark:border-neutral-700 rounded-lg px-4 py-2.5 text-sm focus:ring-2 focus:ring-sky-500 outline-none transition-all" />
-                            </div>
-                            <div className="space-y-2">
-                                <label className="text-[10px] font-bold text-neutral-400">Cargo / Função</label>
-                                <input type="text" defaultValue="Administrador" className="w-full bg-neutral-50 dark:bg-neutral-800 border-neutral-200 dark:border-neutral-700 rounded-lg px-4 py-2.5 text-sm focus:ring-2 focus:ring-sky-500 outline-none transition-all" />
                             </div>
                         </div>
                     </div>

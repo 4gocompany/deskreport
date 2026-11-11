@@ -90,6 +90,7 @@ export class PrismaServiceMock {
     count: jest.fn(),
   };
   agentMachine = {
+    count: jest.fn(),
     findMany: jest.fn(),
     findFirst: jest.fn(),
     findUnique: jest.fn(),

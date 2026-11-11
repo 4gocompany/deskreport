@@ -1,12 +1,39 @@
 import { useState } from 'react';
+import { useParams } from 'react-router-dom';
 import { Check, Copy } from 'lucide-react';
 import { agentProfile, useAgentsStore } from '../../tasks/use-agents';
 import { AgentAvatar } from '../../tasks/components/agent-avatar';
+import { Machine, useMachines } from '../../../hooks/useMachines';
+
+const roleLabels: Record<string, string> = {
+  architecture: 'Arquitetura',
+  engineering: 'Engenharia',
+  review: 'Revisão',
+  qa: 'QA',
+  devops: 'DevOps',
+  documentation: 'Documentação',
+  support: 'Suporte',
+};
+
+// Os cargos ficam na configuração de cada máquina. Mostra os cargos do agente e em quais máquinas ele roda
+function agentRoles(agent: string, machines: Machine[]) {
+  const roles: string[] = [];
+  const names: string[] = [];
+  for (const machine of machines) {
+    const list = machine.agentRoles?.[agent];
+    if (!list) continue;
+    names.push(machine.name);
+    for (const role of list) if (!roles.includes(role)) roles.push(role);
+  }
+  return [roles.map((role) => roleLabels[role] || role).join(', '), names.join(', ')].filter(Boolean).join(' · ');
+}
 
 export function AgentsHub() {
   const agents = useAgentsStore((state) => state.agents);
   useAgentsStore((state) => state.profiles);
   const [copied, setCopied] = useState('');
+  const { company_id } = useParams();
+  const machines = useMachines(company_id);
 
   const commands = [
     { prompt: '$', command: `curl -fsSL ${window.location.origin}/install.sh | bash` },
@@ -58,7 +85,7 @@ export function AgentsHub() {
                     {member.nickname && <span className="ml-2 text-xs font-medium text-zinc-500">{member.label}</span>}
                   </div>
                   <div className="text-xs text-zinc-500 truncate">
-                    {member.role}
+                    {agentRoles(member.agent, machines) || 'Sem cargo nas máquinas'}
                     {working && status.action ? `: ${[status.project, status.action].filter(Boolean).join(', ')}` : ''}
                   </div>
                 </div>

@@ -15,8 +15,7 @@ interface ChecklistCardProps {
 
 function checklistPath(id: string) {
   if (id === 'profile') return 'settings/profile';
-  if (id === 'plan') return 'settings/preferences';
-  if (id === 'integrations') return 'settings/channels';
+  if (id === 'machine') return 'settings/agents';
   if (id === 'teams') return 'teams';
   if (id === 'projects') return 'projects';
   if (id === 'tasks') return 'all/tasks/boards';

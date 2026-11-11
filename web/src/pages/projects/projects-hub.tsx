@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Plus, Briefcase, ArchiveRestore, Archive, Power, Settings2, MoreVertical, LayoutGrid, ListTodo, Users2 } from 'lucide-react';
+import { Plus, Briefcase, ArchiveRestore, Archive, Settings2, LayoutGrid, ListTodo, Users2 } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 import { authClient } from '../../lib/auth-client';
 import { useNavigate } from 'react-router-dom';
@@ -130,7 +130,7 @@ export function ProjectsHub() {
                     className='text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20'
                     title='Gerenciar Tarefas'
                   >
-                    <Power size={18} />
+                    <ListTodo size={18} />
                   </Button>
                   <Button size='icon' variant='ghost' onClick={() => setEditingProject(project)} title='Editar Projeto'>
                     <Settings2 size={18} />
@@ -143,9 +143,6 @@ export function ProjectsHub() {
                     title={project.status === 'archived' ? 'Restaurar' : 'Arquivar'}
                   >
                     {project.status === 'archived' ? <ArchiveRestore size={18} /> : <Archive size={18} />}
-                  </Button>
-                  <Button size='icon' variant='ghost'>
-                    <MoreVertical size={18} />
                   </Button>
                 </div>
               </div>

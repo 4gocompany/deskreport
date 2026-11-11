@@ -47,10 +47,7 @@ describe('DashboardService', () => {
       prisma.project.findMany.mockResolvedValue([
         { id: 'p1', name: 'At Risk Proj', endDate: new Date() }
       ]);
-      prisma.organization.findFirst.mockResolvedValue({
-        id: orgId,
-        metadata: JSON.stringify({ planId: 'premium', integrationsCount: 1 })
-      });
+      prisma.agentMachine.count.mockResolvedValue(1);
 
       const result = await service.getHomeData(orgId, userId);
 
@@ -58,8 +55,8 @@ describe('DashboardService', () => {
       expect(result).toHaveProperty('radar');
       expect(result).toHaveProperty('summary');
       
-      const planItem = result.checklist.find(i => i.id === 'plan');
-      expect(planItem?.completed).toBe(true);
+      const machineItem = result.checklist.find(i => i.id === 'machine');
+      expect(machineItem?.completed).toBe(true);
     });
   });
 

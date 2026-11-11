@@ -1,11 +1,10 @@
 import { Page } from '../../components/layout/page';
 import { Topbar } from '../../components/layout/topbar';
-import { ShieldCheck, Share2, Settings2, User, Bot } from 'lucide-react';
+import { ShieldCheck, Settings2, User, Bot } from 'lucide-react';
 import { useParams } from 'react-router-dom';
 import { useMemo } from 'react';
 import { useTenant } from '../../hooks/useTenant';
 import { SecurityHub } from './views/security-hub';
-import { ChannelsHub } from './views/channels-hub';
 import { PreferencesHub } from './views/preferences-hub';
 import { OrganizationsHub } from './views/organizations-hub';
 import { ProfileHub } from './views/profile-hub';
@@ -20,7 +19,6 @@ export default function Settings() {
 
   const navigation = useMemo(() => [
     { name: 'Meu Perfil', to: companyUrl('settings/profile'), icon: <User size={14} /> },
-    { name: 'Canais e Integrações', to: companyUrl('settings/channels'), icon: <Share2 size={14} /> },
     { name: 'Usuários e Segurança', to: companyUrl('settings/security'), icon: <ShieldCheck size={14} /> },
     { name: 'Agentes', to: companyUrl('settings/agents'), icon: <Bot size={14} /> },
     { name: 'Preferências', to: companyUrl('settings/preferences'), icon: <Settings2 size={14} /> },
@@ -29,7 +27,6 @@ export default function Settings() {
 
   const renderContent = () => {
     switch (currentTab) {
-      case 'channels': return <ChannelsHub />;
       case 'security': return <SecurityHub />;
       case 'preferences': return <PreferencesHub />;
       case 'organizations': return <OrganizationsHub />;

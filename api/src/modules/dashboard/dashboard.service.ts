@@ -170,35 +170,27 @@ export class DashboardService {
     }
 
     async getHomeData(organizationId: string, userId: string) {
-        const [user, org, summary, upcoming, projectsHealth] = await Promise.all([
+        const [user, machines, summary, upcoming, projectsHealth] = await Promise.all([
             this.prisma.user.findFirst({ where: { id: userId } }),
-            this.prisma.organization.findFirst({ where: { id: organizationId } }),
+            this.prisma.agentMachine.count({ where: { organizationId } }),
             this.getSummary(organizationId),
             this.getUpcomingDeadlines(organizationId),
             this.getProjectHealth(organizationId),
         ]);
-
-        const metadata = JSON.parse(org?.metadata || '{}');
 
         // 1. Checklist "Foco Principal"
         const checklist = [
             {
                 id: 'profile',
                 title: 'Completar perfil',
-                description: 'Imagem, telefone e dados básicos.',
+                description: 'Foto e nome.',
                 completed: !!(user?.image && user?.name && user?.email),
             },
             {
-                id: 'plan',
-                title: 'Configurar plano',
-                description: 'Escolha um plano para sua organização.',
-                completed: !!metadata?.planId,
-            },
-            {
-                id: 'integrations',
-                title: 'Configurar integrações',
-                description: 'Conecte seus canais de comunicação.',
-                completed: !!metadata?.integrationsCount || false,
+                id: 'machine',
+                title: 'Conectar uma máquina',
+                description: 'Instale o DeskReport e autorize a máquina.',
+                completed: machines > 0,
             },
             {
                 id: 'teams',
