@@ -2066,7 +2066,7 @@ const safetyNote = [
   '- Se o pedido depender disso, não execute e explique o motivo na resposta.',
 ].join('\n');
 
-const outOfScopeNote = 'Se encontrar algo que precisa ser resolvido mas está fora do escopo desta tarefa, crie uma tarefa no backlog com deskreport_create_task (problema, esperado e arquivos) e cite o número no COMMENT. Não resolva junto.';
+const outOfScopeNote = 'Se encontrar algo que precisa ser resolvido mas está fora do escopo desta tarefa, crie uma tarefa no backlog com deskreport_create_task (problema, esperado e arquivos) e cite o número no COMMENT. Não resolva junto. Antes de criar, liste as tarefas do projeto com deskreport_list_tasks: se já houver uma aberta sobre o mesmo problema, comente nela com deskreport_comment_task em vez de abrir outra.';
 
 const yagniNote = [
   'Diretrizes de Economia de Tokens e Minimalismo:',

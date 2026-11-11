@@ -1,4 +1,4 @@
-import { BadRequestException, HttpException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, HttpException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { createHash, randomBytes } from 'crypto';
 import { auth } from '../../auth/auth';
@@ -631,6 +631,16 @@ export class AgentsService {
       else throw new BadRequestException('Informe project');
     }
 
+    // Na #071 três agentes abriram a mesma tarefa em 10 minutos. Título parecido com uma tarefa aberta recente do projeto vira comentário nela
+    const recent = await this.prisma.task.findMany({
+      where: { companyId: organizationId, project: fields.project, status: { notIn: ['done', 'release'] }, createdAt: { gte: new Date(Date.now() - 12 * 3_600_000) } },
+      select: { shortId: true, title: true },
+    });
+    const twin = recent.find((task) => similarTitles(task.title, fields.title));
+    if (twin) {
+      throw new ConflictException(`Já existe a tarefa #${String(twin.shortId).padStart(3, '0')} parecida: "${twin.title}". Comente nela com deskreport_comment_task em vez de abrir outra.`);
+    }
+
     await this.ensureAgentUsers(organizationId, [agent]);
     const last = await this.prisma.task.findFirst({
       where: { companyId: organizationId },
@@ -1067,6 +1077,26 @@ const stageTitles: Record<string, string> = {
   review: 'Revisão concluída.',
   qa: 'QA concluído.',
 };
+
+// Falam do mesmo problema quando dividem 3 radicais ou mais e eles passam da metade do título mais curto.
+// O radical (4 primeiras letras, sem acento) junta plural e singular, como "mapa" e "mapas" nas tarefas do SICAR da #071
+function similarTitles(a: string, b: string) {
+  const first = titleWords(a);
+  const second = titleWords(b);
+  const common = first.filter((word) => second.includes(word)).length;
+  return common >= 3 && common / Math.min(first.length, second.length) > 0.5;
+}
+
+function titleWords(title: string) {
+  return title
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((word) => word.length >= 4)
+    .map((word) => word.slice(0, 4))
+    .filter((word, index, all) => all.indexOf(word) === index);
+}
 
 // Parecer que aprova e não reprova nem nega a aprovação
 export function approved(text: string) {
