@@ -3,6 +3,7 @@ import Markdown from 'react-markdown';
 import { Download, FileCode, FileImage, FileText, Paperclip, Trash2, Upload } from 'lucide-react';
 import { apiBase } from '../../../api/fetcher';
 import { Button, Dialog } from '../../../components/ui';
+import { confirmDialog } from '../../../components/ui/confirm-dialog';
 
 interface Attachment {
   id: string;
@@ -103,7 +104,7 @@ export function TaskAttachments({ taskId, orgId }: { taskId: string; orgId: stri
   }
 
   async function remove(attachment: Attachment) {
-    if (!confirm(`Remover ${attachment.filename}?`)) return;
+    if (!(await confirmDialog(`Remover ${attachment.filename}?`, { confirmLabel: 'Remover', danger: true }))) return;
     const res = await request(`${baseUrl}/${attachment.id}`, { method: 'DELETE' }).catch(() => null);
     if (res?.ok) setAttachments((list) => list.filter((item) => item.id !== attachment.id));
     else setError('Não foi possível remover o anexo');

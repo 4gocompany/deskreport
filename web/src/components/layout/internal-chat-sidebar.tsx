@@ -6,6 +6,7 @@ import { Search, MessagesSquare, ArrowLeft, Send, Users, AlertTriangle, Plus, Hi
 import { AgentChatMessage, AgentChatSession, agentProfile, useAgentsStore, withAgentProfile } from '../../pages/tasks/use-agents';
 import { AgentAvatar } from '../../pages/tasks/components/agent-avatar';
 import { ChatMarkdown } from '../chat/chat-markdown';
+import { confirmDialog } from '../ui/confirm-dialog';
 
 type OrgMember = { id: string; userId: string; role: string; user: { name: string; image?: string | null } };
 
@@ -214,7 +215,7 @@ export function InternalChatSidebar() {
   }
 
   async function deleteSession(id: string) {
-    if (!organization?.id || !window.confirm('Apagar esta sessão e as mensagens dela?')) return;
+    if (!organization?.id || !(await confirmDialog('Apagar esta sessão e as mensagens dela?', { confirmLabel: 'Apagar', danger: true }))) return;
     await authClient.$fetch(`${apiBase}/agents/sessions/${id}`, {
       method: 'DELETE',
       headers: { 'x-organization-id': organization.id },

@@ -4,6 +4,7 @@ import { useParams } from 'react-router-dom';
 import { Download, Upload, FileJson, FileSpreadsheet, Trash2, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { useTaskStore } from './use-task-store';
 import { Button } from '../../components/ui/button';
+import { confirmDialog } from '../../components/ui/confirm-dialog';
 import { useState, useRef, useEffect } from 'react';
 
 export default function TaskDataManagement() {
@@ -91,8 +92,8 @@ export default function TaskDataManagement() {
         fileInputRef.current?.click();
     };
 
-    const clearAllTasks = () => {
-        if (confirm('Tem certeza que deseja apagar TODAS as tarefas? Esta ação não pode ser desfeita.')) {
+    const clearAllTasks = async () => {
+        if (await confirmDialog('Apagar todas as tarefas? Esta ação não pode ser desfeita.', { confirmLabel: 'Apagar', danger: true })) {
             setTasks([]);
             setStatus({ type: 'success', message: 'Todas as tarefas foram removidas.' });
         }

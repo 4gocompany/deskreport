@@ -1,9 +1,9 @@
 import { Outlet, useParams } from 'react-router-dom';
 import { Navbar } from './navbar';
-import { InternalChatSidebar } from './internal-chat-sidebar';
 import { GlobalStatusBar } from './global-status-bar';
 import { useEffect } from 'react';
 import { useAgentsSocket } from '../../pages/tasks/use-agents';
+import { ConfirmDialogHost } from '../ui/confirm-dialog';
 
 export function Layout() {
   const { company_id } = useParams();
@@ -24,7 +24,7 @@ export function Layout() {
         <Outlet />
         <GlobalStatusBar />
       </div>
-      <InternalChatSidebar />
+      <ConfirmDialogHost />
     </main>
   );
 }

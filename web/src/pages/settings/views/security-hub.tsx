@@ -1,5 +1,6 @@
 import { Plus, Shield, X, Activity, Trash2 } from 'lucide-react';
 import { Button } from '../../../components/ui/button';
+import { alertDialog, confirmDialog } from '../../../components/ui/confirm-dialog';
 import { PermissionForm } from './permission-form';
 import { authClient } from '../../../lib/auth-client';
 import { useState, useEffect } from 'react';
@@ -101,12 +102,12 @@ export function SecurityHub() {
       loadMembers();
     } catch (e) {
       console.error(e);
-      alert('Ocorreu um erro ao criar o usuário. Tente novamente.');
+      alertDialog('Não foi possível criar o usuário. Tente novamente.');
     }
   };
 
   const handleRemoveMember = async (memberId: string) => {
-    if (!confirm('Deseja realmente remover este membro?')) return;
+    if (!(await confirmDialog('Remover este membro da organização?', { confirmLabel: 'Remover', danger: true }))) return;
     try {
       await authClient.organization.removeMember({
         memberIdOrEmail: memberId,

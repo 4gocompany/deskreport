@@ -2,6 +2,7 @@ import { Page } from '../../components/layout/page';
 import { Topbar } from '../../components/layout/topbar';
 import { Users2, Plus, Trash2 } from 'lucide-react';
 import { Button } from '../../components/ui/button';
+import { confirmDialog } from '../../components/ui/confirm-dialog';
 import { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { useTenantStore } from '../../store';
@@ -33,7 +34,7 @@ export default function TeamsPage() {
   };
 
   const handleDelete = async (teamId: string) => {
-    if (!company_id || !confirm('Deseja realmente excluir esta equipe?')) return;
+    if (!company_id || !(await confirmDialog('Excluir esta equipe?', { confirmLabel: 'Excluir', danger: true }))) return;
     try {
       await authClient.$fetch(`${apiBase}/teams/${teamId}`, {
         method: 'DELETE',

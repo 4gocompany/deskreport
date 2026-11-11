@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { ArrowLeft, Search, Users, X, UserPlus, Loader2 } from 'lucide-react';
 import { Button } from '../../../components/ui/button';
+import { alertDialog } from '../../../components/ui/confirm-dialog';
 import { authClient } from '../../../lib/auth-client';
 import { apiBase } from '../../../api/fetcher';
 
@@ -157,7 +158,7 @@ export function PermissionForm({ onBack, organizationId }: PermissionFormProps) 
 
   const handleSave = async () => {
     if (!roleName.trim()) {
-      alert('Por favor, informe o nome da função.');
+      alertDialog('Informe o nome da função.');
       return;
     }
 
@@ -177,7 +178,7 @@ export function PermissionForm({ onBack, organizationId }: PermissionFormProps) 
       onBack();
     } catch (e) {
       console.error(e);
-      alert('Erro ao salvar perfil de acesso.');
+      alertDialog('Não foi possível salvar o perfil de acesso.');
     } finally {
       setLoading(false);
     }
