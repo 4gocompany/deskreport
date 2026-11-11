@@ -2650,6 +2650,20 @@ function openNativeWidget() {
     '--no-default-browser-check',
   ];
 
+  // App nativo da bandeja instalado pelo install.sh: ele mesmo mostra o widget ao abrir ou reabrir
+  const macApp = path.join(os.homedir(), 'Applications', 'DeskReport.app', 'Contents', 'Frameworks');
+  if (process.platform === 'darwin' && existsSync(macApp)) {
+    execFile('open', [path.dirname(path.dirname(macApp))], (error) => {
+      if (error) openUrl(widgetUrl);
+    });
+    return;
+  }
+  const appImage = path.join(os.homedir(), '.deskreport', 'bin', 'DeskReport.AppImage');
+  if (process.platform === 'linux' && existsSync(appImage)) {
+    spawn(appImage, [], { detached: true, stdio: 'ignore' }).on('error', () => openUrl(widgetUrl)).unref();
+    return;
+  }
+
   if (process.platform === 'darwin') {
     function tryMacApp(list) {
       if (list.length === 0) return openUrl(widgetUrl);

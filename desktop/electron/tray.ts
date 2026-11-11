@@ -28,11 +28,12 @@ export function createTray() {
   if (process.platform === 'linux') {
     // AppIndicator não entrega clique esquerdo: o menu aparece em qualquer clique
     refreshLinuxMenu(tray);
-    return;
+    return tray;
   }
 
   tray.on('click', () => toggleWidget(tray.getBounds()));
   tray.on('right-click', () => popUpMenu(tray));
+  return tray;
 }
 
 async function popUpMenu(tray: Tray) {
