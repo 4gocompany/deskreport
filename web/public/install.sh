@@ -76,15 +76,17 @@ if [ "$(uname -s)" = "Darwin" ]; then
   DMG="$DEST/DeskReport.dmg"
   MOUNT="$DEST/dmg"
   NATIVE=""
-  rm -rf "$APP"
   mkdir -p "$HOME/Applications"
+  # Só troca o app depois que o dmg novo baixou e montou. Se falhar, o app nativo que já estava instalado fica
   if [ "$(uname -m)" = "arm64" ] && curl -fsSL "https://github.com/4gocompany/deskreport/releases/latest/download/DeskReport-macos.dmg" -o "$DMG"; then
     if hdiutil attach "$DMG" -nobrowse -quiet -mountpoint "$MOUNT"; then
+      rm -rf "$APP"
       cp -R "$MOUNT/DeskReport.app" "$APP" && NATIVE="1"
       hdiutil detach "$MOUNT" -quiet || true
     fi
   fi
   rm -f "$DMG"
+  if [ -d "$APP/Contents/Frameworks" ]; then NATIVE="1"; fi
 fi
 
 if [ "$(uname -s)" = "Darwin" ] && [ -z "$NATIVE" ]; then
