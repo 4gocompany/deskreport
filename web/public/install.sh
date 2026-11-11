@@ -70,8 +70,24 @@ EOF
 fi
 
 # No macOS vira o DeskReport.app em ~/Applications: aparece no Launchpad e no Spotlight e abre sem terminal
+# Com o app da bandeja da última release (build Apple Silicon), instala ele. Sem rede para o GitHub ou num Mac Intel, abre o widget
 if [ "$(uname -s)" = "Darwin" ]; then
   APP="$HOME/Applications/DeskReport.app"
+  DMG="$DEST/DeskReport.dmg"
+  MOUNT="$DEST/dmg"
+  NATIVE=""
+  rm -rf "$APP"
+  mkdir -p "$HOME/Applications"
+  if [ "$(uname -m)" = "arm64" ] && curl -fsSL "https://github.com/4gocompany/deskreport/releases/latest/download/DeskReport-macos.dmg" -o "$DMG"; then
+    if hdiutil attach "$DMG" -nobrowse -quiet -mountpoint "$MOUNT"; then
+      cp -R "$MOUNT/DeskReport.app" "$APP" && NATIVE="1"
+      hdiutil detach "$MOUNT" -quiet || true
+    fi
+  fi
+  rm -f "$DMG"
+fi
+
+if [ "$(uname -s)" = "Darwin" ] && [ -z "$NATIVE" ]; then
   rm -rf "$APP"
   mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
   printf '#!/bin/sh\nexec "%s/deskreport" widget\n' "$DEST" > "$APP/Contents/MacOS/DeskReport"
