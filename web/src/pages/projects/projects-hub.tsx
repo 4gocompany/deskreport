@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Plus, Pencil, ArchiveRestore, Archive } from 'lucide-react';
+import { Plus, Pencil, ArchiveRestore, Archive, Trash2 } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 import { authClient } from '../../lib/auth-client';
 import { useNavigate } from 'react-router-dom';
@@ -7,8 +7,9 @@ import { EditProjectModal } from './edit-project-modal';
 import { useTenant } from '../../hooks/useTenant';
 import { apiBase } from '../../api/fetcher';
 import { List, ListAction, ListActions, ListRow } from '../../components/ui/list';
+import { alertDialog, confirmDialog } from '../../components/ui/confirm-dialog';
 
-const projectColumns = '1fr 96px 160px 72px';
+const projectColumns = '1fr 96px 160px 96px';
 
 export function ProjectsHub() {
   const [projects, setProjects] = useState<any[]>([]);
@@ -59,6 +60,20 @@ export function ProjectsHub() {
     }
   };
 
+  async function handleDelete(project: any) {
+    const ok = await confirmDialog(`Excluir o projeto ${project.name} e todas as tarefas dele? Esta ação não pode ser desfeita.`, {
+      confirmLabel: 'Excluir',
+      danger: true,
+    });
+    if (!ok) return;
+    const { error } = await authClient.$fetch(`${apiBase}/projects/${project.id}`, {
+      method: 'DELETE',
+      headers: { 'x-organization-id': company_id || '' },
+    });
+    if (error) alertDialog('Não foi possível excluir o projeto.');
+    loadProjects();
+  }
+
   return (
     <div className='animate-slide-up pb-10'>
       <div className='flex items-center justify-between mb-6'>
@@ -105,6 +120,9 @@ export function ProjectsHub() {
                   </ListAction>
                   <ListAction title={project.status === 'archived' ? 'Restaurar' : 'Arquivar'} onClick={() => handleArchiveToggle(project)}>
                     {project.status === 'archived' ? <ArchiveRestore size={14} /> : <Archive size={14} />}
+                  </ListAction>
+                  <ListAction title='Excluir' danger onClick={() => handleDelete(project)}>
+                    <Trash2 size={14} />
                   </ListAction>
                 </ListActions>
               </ListRow>

@@ -230,9 +230,14 @@ export class ProjectsService {
         return this.findOne(id, organizationId);
     }
 
+    // As tarefas guardam o projeto como texto, sem chave estrangeira, e saem junto para não ficarem órfãs
     async remove(id: string, organizationId: string) {
-        return this.prisma.project.deleteMany({
-            where: { id, organizationId },
-        });
+        const project = await this.prisma.project.findFirst({ where: { id, organizationId }, select: { id: true } });
+        if (!project) throw new NotFoundException('Projeto não encontrado');
+        await this.prisma.$transaction([
+            this.prisma.task.deleteMany({ where: { companyId: organizationId, project: id } }),
+            this.prisma.project.delete({ where: { id } }),
+        ]);
+        return { id };
     }
 }
