@@ -14,6 +14,7 @@ interface EditProjectModalProps {
 export function EditProjectModal({ project, onClose, onSuccess }: EditProjectModalProps) {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
+  const [folder, setFolder] = useState('');
   const [status, setStatus] = useState('active');
   const [loading, setLoading] = useState(false);
   const [selectedTeamIds, setSelectedTeamIds] = useState<string[]>([]);
@@ -33,12 +34,14 @@ export function EditProjectModal({ project, onClose, onSuccess }: EditProjectMod
     if (project) {
       setName(project.name || '');
       setDescription(project.description || '');
+      setFolder(project.folder || '');
       setStatus(project.status || 'active');
       setSelectedTeamIds(project.teams?.map((t: any) => t.teamId) || []);
       setAutoCommitAfterQa(project.autoCommitAfterQa === true);
       setEnvironments(project.environments || []);
     } else {
       setName('');
+      setFolder('');
       setDescription('');
       setStatus('active');
       setSelectedTeamIds([]);
@@ -70,7 +73,7 @@ export function EditProjectModal({ project, onClose, onSuccess }: EditProjectMod
     }
 
     try {
-      const payload = { name, description, status, autoCommitAfterQa, teamIds: selectedTeamIds };
+      const payload = { name, description, folder: folder.trim() || undefined, status, autoCommitAfterQa, teamIds: selectedTeamIds };
 
       let saved: any;
       if (project) {
@@ -132,6 +135,17 @@ export function EditProjectModal({ project, onClose, onSuccess }: EditProjectMod
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder='Ex: Comercial, Marketing...'
+              className='w-full bg-zinc-50 dark:bg-zinc-800/50 border border-zinc-200 dark:border-zinc-700 rounded-lg px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-medium'
+            />
+          </div>
+
+          <div className='space-y-1.5'>
+            <label className='text-[10px] font-black  text-zinc-400'>Pasta</label>
+            <input
+              type='text'
+              value={folder}
+              onChange={(e) => setFolder(e.target.value)}
+              placeholder='Nome da pasta no workspace da máquina (ex: web.agrosync)'
               className='w-full bg-zinc-50 dark:bg-zinc-800/50 border border-zinc-200 dark:border-zinc-700 rounded-lg px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-medium'
             />
           </div>

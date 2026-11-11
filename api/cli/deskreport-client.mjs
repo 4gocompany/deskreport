@@ -1313,10 +1313,9 @@ function projectDir(folder) {
   const root = realpathSync(workspaceRoot);
   const wsName = path.basename(root);
 
-  // Se o projeto for a própria raiz do workspace (tarefas que precisam de ambos os subprojetos)
-  if (!trimmed || trimmed === '.' || trimmed === 'root' || trimmed === 'raiz' || trimmed === wsName || trimmed === `${wsName} / raiz` || trimmed === `${wsName} / todos`) {
-    return root;
-  }
+  // A raiz do workspace só vale pelo nome dela. "root", "raiz" ou vazio casavam com a raiz de qualquer máquina, e a tarefa rodava em todas
+  if (trimmed === wsName || trimmed === `${wsName} / raiz` || trimmed === `${wsName} / todos`) return root;
+  if (!trimmed) return '';
 
   const cleanFolder = trimmed.includes('/') ? trimmed.split('/').pop().trim() : trimmed;
   if (!/^[\w-][\w.-]*$/.test(cleanFolder)) return '';
