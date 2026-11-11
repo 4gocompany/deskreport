@@ -5,7 +5,7 @@ import { fromNodeHeaders } from 'better-auth/node';
 import { Server, Socket } from 'socket.io';
 import { auth } from '../../auth/auth';
 import { allowedOrigins } from '../../origins';
-import { AgentsService, agentNames, checkProjectPath, mentionName } from './agents.service';
+import { AgentsService, agentNames, approved, checkProjectPath, mentionName } from './agents.service';
 
 // A autenticação é feita na conexão (chave da máquina ou sessão do navegador), por isso o guard global fica de fora
 @AllowAnonymous()
@@ -340,11 +340,6 @@ export class AgentsGateway implements OnGatewayConnection {
   emitTask(organizationId: string, event: 'task:created' | 'task:updated', task: unknown) {
     this.server.to(uiRoom(organizationId)).emit(event, task);
   }
-}
-
-// Parecer que aprova e não reprova nem nega a aprovação
-function approved(text: string) {
-  return /\baprovad[oa]\b/i.test(text) && !/reprovad|n[aã]o\s+(est[aá]\s+)?aprovad/i.test(text);
 }
 
 // Spec, implementação, revisão, correção, nova revisão e commit/deploy cabem com folga

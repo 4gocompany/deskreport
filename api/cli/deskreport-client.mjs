@@ -1566,7 +1566,6 @@ async function runTask(task) {
       facts.push('A sandbox do Claude Code está desligada nesta máquina (falta bwrap ou socat). Instale os dois para liberar os demais comandos com segurança.');
     }
     if (denials.length > 0) facts.push(`Bloqueado pelas permissões do DeskReport:\n${denials.filter((d, i) => denials.indexOf(d) === i).map((d) => `- ${d}`).join('\n')}`);
-    if (stage === 'implement' && stageRole(stage, task.agent) !== 'qa' && code === 0 && !stoppedByUser && touchedFiles.length === 0) facts.push('Aviso do DeskReport: nenhum arquivo foi alterado nesta execução.');
     // Etapa somente leitura que alterou arquivo não segue a esteira. O runner não desfaz sozinho: no mesmo intervalo uma pessoa pode ter editado o arquivo
     const readOnlyBroken = readOnly && touchedFiles.length > 0;
     if (readOnlyBroken) facts.push(`Aviso do DeskReport: esta etapa não pode alterar arquivos e alterou:\n${touchedFiles.map((file) => `- ${file}`).join('\n')}\nConfira e desfaça antes de seguir. A esteira parou aqui.`);

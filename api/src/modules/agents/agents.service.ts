@@ -427,7 +427,9 @@ export class AgentsService {
     // Orçamento esgotado para a esteira automática. Acionamento por uma pessoa continua liberado
     if (data?.auto && task.tokensUsed >= task.tokenBudget) {
       // Sem o aviso a esteira parava em silêncio e a tarefa ficava esperando um agente que nunca vinha
-      if (agentNames.includes(data?.agent)) {
+      // Um aviso basta: a esteira tenta de novo a cada etapa, e só repete depois que alguém aciona e a tarefa ganha outro comentário
+      const lastComment = task.comments[task.comments.length - 1]?.content || '';
+      if (agentNames.includes(data?.agent) && !lastComment.includes('o orçamento de tokens da tarefa acabou')) {
         const content = `Não fui acionado: o orçamento de tokens da tarefa acabou (${task.tokensUsed} de ${task.tokenBudget}). Para seguir, acione pelo painel.`;
         await this.commentTask(organizationId, task.id, { agent: data.agent, content });
       }
@@ -1066,10 +1068,18 @@ const stageTitles: Record<string, string> = {
   qa: 'QA concluído.',
 };
 
+// Parecer que aprova e não reprova nem nega a aprovação
+export function approved(text: string) {
+  return /\baprovad[oa]\b/i.test(text) && !/reprovad|n[aã]o\s+(est[aá]\s+)?aprovad/i.test(text);
+}
+
 // O comentário é exibido como HTML no painel, então tudo que vem do agente é escapado
 function finishedComment(data: any) {
   let result = data.stopped ? 'Execução parada pelo usuário.' : '';
   if (data.exitCode === 0 && stageTitles[data.stage]) result = stageTitles[data.stage];
+  const verdict = typeof data.comment === 'string' && data.comment ? data.comment : typeof data.summary === 'string' ? data.summary : '';
+  if (data.exitCode === 0 && data.stage === 'review') result = approved(verdict) ? 'Revisão concluída: aprovada.' : 'Revisão concluída: com ajustes.';
+  if (data.exitCode === 0 && data.stage === 'implement' && !data.touchedFiles?.length) result = 'Implementação não entregue: nenhum arquivo foi alterado.';
   // QA sem ambiente no ar não abriu o navegador: o título não pode dizer que o QA foi feito
   if (data.exitCode === 0 && data.stage === 'qa' && data.qaWithoutEnvironment) result = 'QA só no código: sem ambiente para testar no navegador.';
   const summary = cleanSummary(text(data.summary, 4000));
