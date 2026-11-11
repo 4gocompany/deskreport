@@ -26,12 +26,18 @@ Push-Location $Dest
 npm.cmd install --omit=dev --no-audit --no-fund --silent
 Pop-Location
 
-# Atalho no Menu Iniciar para abrir o DeskReport como app, sem terminal
-$Shortcut = (New-Object -ComObject WScript.Shell).CreateShortcut((Join-Path ([Environment]::GetFolderPath('Programs')) 'DeskReport.lnk'))
-$Shortcut.TargetPath = 'wscript.exe'
-$Shortcut.Arguments = '"' + (Join-Path $Dest 'DeskReport.vbs') + '"'
-$Shortcut.WorkingDirectory = $Dest
-$Shortcut.Save()
+# O widget é só o app nativo da bandeja, da última release. O instalador dele cria o atalho no Menu Iniciar
+# O atalho antigo, que abria o widget pelo .vbs, sai antes para não sobrar dois
+Remove-Item -Force -ErrorAction SilentlyContinue (Join-Path ([Environment]::GetFolderPath('Programs')) 'DeskReport.lnk')
+Remove-Item -Force -ErrorAction SilentlyContinue (Join-Path $Dest 'DeskReport.vbs')
+$Setup = Join-Path $env:TEMP 'DeskReport-windows.exe'
+try {
+  Invoke-WebRequest -Uri 'https://github.com/4gocompany/deskreport/releases/latest/download/DeskReport-windows.exe' -OutFile $Setup -UseBasicParsing
+  Start-Process -FilePath $Setup -ArgumentList '/S' -Wait
+  Remove-Item $Setup
+} catch {
+  Write-Host 'Não consegui baixar o app do DeskReport da última release. Os agentes rodam, mas o widget só abre depois de rodar o instalador de novo.'
+}
 
 $UserPath = [Environment]::GetEnvironmentVariable('Path', 'User')
 if (-not (($UserPath -split ';') -contains $Dest)) {
@@ -39,5 +45,5 @@ if (-not (($UserPath -split ';') -contains $Dest)) {
   $env:Path = "$env:Path;$Dest"
 }
 
-Write-Host 'DeskReport instalado. Abra pelo Menu Iniciar ou rode: deskreport widget'
+Write-Host 'DeskReport instalado. Abra pelo Menu Iniciar'
 Write-Host 'Abra um novo terminal para usar o comando deskreport.'

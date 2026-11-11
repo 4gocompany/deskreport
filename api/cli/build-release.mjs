@@ -41,14 +41,12 @@ exec "$NODE" "$DIR/deskreport-client.mjs" "$@"
 `;
 
 // Windows já vem com tar para extrair e o .cmd roda o client com o node do PATH
-// O .vbs abre o app do widget sem mostrar janela de terminal
 const windowsLauncher = '@echo off\r\nnode "%~dp0deskreport-client.mjs" %*\r\n';
-const windowsWidget = 'Set fso = CreateObject("Scripting.FileSystemObject")\r\ndir = fso.GetParentFolderName(WScript.ScriptFullName)\r\nCreateObject("WScript.Shell").Run "node """ & dir & "\\deskreport-client.mjs"" widget", 0, False\r\n';
 
 mkdirSync(outDir, { recursive: true });
 buildPackage('deskreport-linux.tar.gz', 'install.sh', { deskreport: unixLauncher });
 buildPackage('deskreport-macos.tar.gz', 'install.sh', { deskreport: unixLauncher });
-buildPackage('deskreport-windows-x64.tar.gz', 'install.ps1', { 'deskreport.cmd': windowsLauncher, 'DeskReport.vbs': windowsWidget });
+buildPackage('deskreport-windows-x64.tar.gz', 'install.ps1', { 'deskreport.cmd': windowsLauncher });
 
 function buildPackage(fileName, installer, launchers) {
   const staging = mkdtempSync(path.join(os.tmpdir(), 'deskreport-'));

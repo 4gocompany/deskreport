@@ -44,44 +44,47 @@ fi
 chmod +x "$DEST/deskreport"
 ln -sf "$DEST/deskreport" "$HOME/.local/bin/deskreport"
 
-# No Linux o DeskReport aparece no menu de aplicativos e abre como app, sem terminal
-# Com o app da bandeja baixado da última release, o menu abre ele. Sem rede para o GitHub, abre o widget
+# O widget é só o app nativo da bandeja, baixado da última release. Se o download falhar, o app que já estava instalado fica
+RELEASE="https://github.com/4gocompany/deskreport/releases/latest/download"
+NATIVE=""
+
+# No Linux é o AppImage, com entrada no menu de aplicativos
 if [ "$(uname -s)" = "Linux" ]; then
-  EXEC="\"$DEST/deskreport\" widget"
-  if curl -fsSL "https://github.com/4gocompany/deskreport/releases/latest/download/DeskReport-linux.AppImage" -o "$DEST/DeskReport.AppImage.part"; then
+  if curl -fsSL "$RELEASE/DeskReport-linux.AppImage" -o "$DEST/DeskReport.AppImage.part"; then
     mv "$DEST/DeskReport.AppImage.part" "$DEST/DeskReport.AppImage"
     chmod +x "$DEST/DeskReport.AppImage"
-    EXEC="\"$DEST/DeskReport.AppImage\""
   else
     rm -f "$DEST/DeskReport.AppImage.part"
   fi
-  mkdir -p "$HOME/.local/share/applications"
-  cat > "$HOME/.local/share/applications/deskreport.desktop" <<EOF
+  if [ -x "$DEST/DeskReport.AppImage" ]; then
+    NATIVE="1"
+    mkdir -p "$HOME/.local/share/applications"
+    cat > "$HOME/.local/share/applications/deskreport.desktop" <<EOF
 [Desktop Entry]
 Type=Application
 Name=DeskReport
 Comment=Agentes do DeskReport nesta máquina
-Exec=$EXEC
+Exec="$DEST/DeskReport.AppImage"
 Icon=$DEST/icon.svg
 Terminal=false
 Categories=Development;
 StartupWMClass=DeskReport
 EOF
+  fi
 fi
 
-# No macOS vira o DeskReport.app em ~/Applications: aparece no Launchpad e no Spotlight e abre sem terminal
-# Com o app da bandeja da última release (build Apple Silicon), instala ele. Sem rede para o GitHub ou num Mac Intel, abre o widget
+# No macOS é o DeskReport.app em ~/Applications, que aparece no Launchpad e no Spotlight
 if [ "$(uname -s)" = "Darwin" ]; then
   APP="$HOME/Applications/DeskReport.app"
   DMG="$DEST/DeskReport.dmg"
   MOUNT="$DEST/dmg"
-  NATIVE=""
   mkdir -p "$HOME/Applications"
-  # Só troca o app depois que o dmg novo baixou e montou. Se falhar, o app nativo que já estava instalado fica
-  if [ "$(uname -m)" = "arm64" ] && curl -fsSL "https://github.com/4gocompany/deskreport/releases/latest/download/DeskReport-macos.dmg" -o "$DMG"; then
+  # O atalho antigo, sem o Electron em Frameworks, sai de vez
+  if [ -d "$APP" ] && [ ! -d "$APP/Contents/Frameworks" ]; then rm -rf "$APP"; fi
+  if curl -fsSL "$RELEASE/DeskReport-macos.dmg" -o "$DMG"; then
     if hdiutil attach "$DMG" -nobrowse -quiet -mountpoint "$MOUNT"; then
       rm -rf "$APP"
-      cp -R "$MOUNT/DeskReport.app" "$APP" && NATIVE="1"
+      cp -R "$MOUNT/DeskReport.app" "$APP" || true
       hdiutil detach "$MOUNT" -quiet || true
     fi
   fi
@@ -89,29 +92,11 @@ if [ "$(uname -s)" = "Darwin" ]; then
   if [ -d "$APP/Contents/Frameworks" ]; then NATIVE="1"; fi
 fi
 
-if [ "$(uname -s)" = "Darwin" ] && [ -z "$NATIVE" ]; then
-  rm -rf "$APP"
-  mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-  printf '#!/bin/sh\nexec "%s/deskreport" widget\n' "$DEST" > "$APP/Contents/MacOS/DeskReport"
-  chmod +x "$APP/Contents/MacOS/DeskReport"
-  sips -s format icns "$DEST/icon.png" --out "$APP/Contents/Resources/DeskReport.icns" >/dev/null 2>&1 || true
-  cat > "$APP/Contents/Info.plist" <<EOF
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>CFBundleName</key><string>DeskReport</string>
-  <key>CFBundleIdentifier</key><string>br.com.deskreport.app</string>
-  <key>CFBundleExecutable</key><string>DeskReport</string>
-  <key>CFBundleIconFile</key><string>DeskReport</string>
-  <key>CFBundlePackageType</key><string>APPL</string>
-  <key>LSUIElement</key><true/>
-</dict>
-</plist>
-EOF
+if [ -z "$NATIVE" ]; then
+  echo "Não consegui baixar o app do DeskReport da última release. Os agentes rodam, mas o widget só abre depois de rodar o instalador de novo."
 fi
 
-echo "DeskReport instalado. Abra pelo menu de aplicativos, pelo Launchpad no macOS ou rode: deskreport widget"
+echo "DeskReport instalado. Abra pelo menu de aplicativos ou pelo Launchpad no macOS"
 case ":$PATH:" in
   *":$HOME/.local/bin:"*) ;;
   *) echo "Adicione ~/.local/bin ao seu PATH para usar o comando deskreport." ;;

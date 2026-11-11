@@ -2638,60 +2638,25 @@ function openUrl(url) {
   spawn(opener[0], opener[1], { detached: true, stdio: 'ignore' }).on('error', () => {}).unref();
 }
 
-// Janela de aplicativo sem barra de endereço. O perfil próprio faz o widget abrir como um app separado
-// do navegador do usuário, com tamanho fixo e ícone próprio na barra de tarefas
+// O widget é sempre o app nativo da bandeja, instalado pelo install.sh ou pelo install.ps1. Ele mostra o widget ao abrir ou reabrir
+function nativeApp() {
+  if (process.platform === 'darwin') return path.join(os.homedir(), 'Applications', 'DeskReport.app');
+  if (process.platform === 'win32') return path.join(process.env.LOCALAPPDATA || '', 'Programs', 'DeskReport', 'DeskReport.exe');
+  return path.join(os.homedir(), '.deskreport', 'bin', 'DeskReport.AppImage');
+}
+
 function openNativeWidget() {
-  const appArgs = [
-    `--app=${widgetUrl}`,
-    '--window-size=420,680',
-    `--user-data-dir=${path.join(configDir, 'window')}`,
-    '--class=DeskReport',
-    '--no-first-run',
-    '--no-default-browser-check',
-  ];
-
-  // App nativo da bandeja instalado pelo install.sh: ele mesmo mostra o widget ao abrir ou reabrir
-  const macApp = path.join(os.homedir(), 'Applications', 'DeskReport.app', 'Contents', 'Frameworks');
-  if (process.platform === 'darwin' && existsSync(macApp)) {
-    execFile('open', [path.dirname(path.dirname(macApp))], (error) => {
-      if (error) openUrl(widgetUrl);
-    });
+  const app = nativeApp();
+  // No macOS o app de verdade traz o Electron em Frameworks. O atalho antigo, sem ele, rodava deskreport widget e abriria em laço
+  const installed = process.platform === 'darwin' ? existsSync(path.join(app, 'Contents', 'Frameworks')) : existsSync(app);
+  if (!installed) {
+    const installer = process.platform === 'win32' ? 'irm https://app.deskreport.com.br/install.ps1 | iex' : 'curl -fsSL https://app.deskreport.com.br/install.sh | bash';
+    console.log(`App do DeskReport não encontrado em ${app}. Instale de novo com: ${installer}`);
+    notify('App do DeskReport não encontrado. Rode o instalador de novo.');
     return;
   }
-  const appImage = path.join(os.homedir(), '.deskreport', 'bin', 'DeskReport.AppImage');
-  if (process.platform === 'linux' && existsSync(appImage)) {
-    spawn(appImage, [], { detached: true, stdio: 'ignore' }).on('error', () => openUrl(widgetUrl)).unref();
-    return;
-  }
-
-  if (process.platform === 'darwin') {
-    function tryMacApp(list) {
-      if (list.length === 0) return openUrl(widgetUrl);
-      execFile('open', ['-na', list[0], '--args', ...appArgs], (error) => {
-        if (error) tryMacApp(list.slice(1));
-      });
-    }
-    tryMacApp(['Google Chrome', 'Microsoft Edge', 'Brave Browser', 'Chromium']);
-    return;
-  }
-
-  function tryBrowser(list) {
-    if (list.length === 0) return openUrl(widgetUrl);
-    const child = spawn(list[0], appArgs, { detached: true, stdio: 'ignore' });
-    child.on('error', () => tryBrowser(list.slice(1)));
-    child.unref();
-  }
-
-  if (process.platform === 'win32') {
-    tryBrowser([
-      path.join(process.env['ProgramFiles(x86)'] || '', 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
-      path.join(process.env.ProgramFiles || '', 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
-      path.join(process.env.ProgramFiles || '', 'Google', 'Chrome', 'Application', 'chrome.exe'),
-      path.join(process.env.LOCALAPPDATA || '', 'Google', 'Chrome', 'Application', 'chrome.exe'),
-    ]);
-    return;
-  }
-  tryBrowser(['google-chrome', 'chromium', 'chromium-browser', 'brave-browser', 'microsoft-edge']);
+  if (process.platform === 'darwin') return execFile('open', [app], () => {});
+  spawn(app, [], { detached: true, stdio: 'ignore' }).on('error', () => {}).unref();
 }
 
 // urgent toca som e fica na tela até o usuário ver
@@ -3894,6 +3859,6 @@ if (process.argv.includes('--background') && !process.env.DESKREPORT_BACKGROUND)
   const terminalSetup = command === 'setup' || command === 'login';
   if (terminalSetup) await setup();
   if (config.machineToken) connectSocket();
-  else console.log(`Abra ${widgetUrl} para conectar a máquina ao DeskReport`);
+  else console.log('Abra o app do DeskReport para conectar a máquina');
   if (terminalSetup || !config.machineToken || process.argv.includes('--widget')) openNativeWidget();
 }

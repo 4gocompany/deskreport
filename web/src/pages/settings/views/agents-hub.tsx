@@ -1,13 +1,7 @@
 import { useState } from 'react';
-import { Apple, Check, Copy, Download, Monitor, Terminal } from 'lucide-react';
+import { Check, Copy } from 'lucide-react';
 import { agentProfile, useAgentsStore } from '../../tasks/use-agents';
 import { AgentAvatar } from '../../tasks/components/agent-avatar';
-
-const DOWNLOADS = [
-  { label: 'Linux', detail: 'Qualquer distro, x64 ou arm64', href: '/downloads/deskreport-linux.tar.gz', icon: <Terminal size={18} /> },
-  { label: 'macOS', detail: 'Apple Silicon e Intel', href: '/downloads/deskreport-macos.tar.gz', icon: <Apple size={18} /> },
-  { label: 'Windows', detail: 'Windows 10 e 11, x64', href: '/downloads/deskreport-windows-x64.tar.gz', icon: <Monitor size={18} /> },
-];
 
 export function AgentsHub() {
   const agents = useAgentsStore((state) => state.agents);
@@ -44,29 +38,6 @@ export function AgentsHub() {
           </div>
         ))}
         <p className="text-xs text-zinc-500">No Linux e macOS use o curl, no Windows rode o comando irm no PowerShell. O setup abre o navegador para você autorizar a máquina nesta organização.</p>
-      </section>
-
-      <section className="space-y-3">
-        <h3 className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">Downloads</h3>
-        <div className="grid sm:grid-cols-3 gap-3">
-          {DOWNLOADS.map((item) => (
-            <a
-              key={item.href}
-              href={item.href}
-              download
-              className="flex items-center gap-4 p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors"
-            >
-              <div className="w-10 h-10 rounded-lg bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 flex items-center justify-center">
-                {item.icon}
-              </div>
-              <div className="flex-1">
-                <div className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">{item.label}</div>
-                <div className="text-xs text-zinc-500">{item.detail}</div>
-              </div>
-              <Download size={16} className="text-zinc-400" />
-            </a>
-          ))}
-        </div>
       </section>
 
       <section className="space-y-3">
