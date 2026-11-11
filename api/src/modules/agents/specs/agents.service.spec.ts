@@ -97,6 +97,15 @@ describe('AgentsService', () => {
     expect(prisma.agentMachine.findMany.mock.calls[0][0].where.organizationId).toBe('org-1');
   });
 
+  it('tarefa nova começa pelo arquiteto, senão por quem implementa', async () => {
+    prisma.agentMachine.findMany.mockResolvedValue([{ agentRoles: { claude: ['engineering'], codex: ['engineering'], antigravity: ['architecture', 'review'], opencode: ['qa'] } }]);
+
+    expect(await service.firstAgent('org-1', ['codex', 'claude', 'opencode', 'antigravity'])).toBe('antigravity');
+    expect(await service.firstAgent('org-1', ['opencode', 'claude'])).toBe('claude');
+    expect(await service.firstAgent('org-1', ['opencode'])).toBe('opencode');
+    expect(prisma.agentMachine.findMany.mock.calls[0][0].where.organizationId).toBe('org-1');
+  });
+
   it('sem agent e sem pasta usa o agente responsável e a pasta do projeto da tarefa', async () => {
     prisma.task.findFirst.mockResolvedValue({ id: 't-1', project: 'p-1', status: 'todo', assignees: [{ id: 'u-1' }, { id: 'agent-user-opencode' }], comments: [] });
     prisma.project.findFirst.mockResolvedValue({ folder: 'deskreport.com.br' });

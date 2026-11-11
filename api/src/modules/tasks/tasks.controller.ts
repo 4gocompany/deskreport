@@ -3,7 +3,7 @@ import { TasksService } from './tasks.service';
 import { ActiveOrg } from '../../auth/active-org.decorator';
 import { ActiveUser } from '../../auth/active-user.decorator';
 import { AgentsGateway } from '../agents/agents.gateway';
-import { agentNames } from '../agents/agents.service';
+import { AgentsService, agentNames } from '../agents/agents.service';
 import { jevKey } from './complexity';
 
 @Controller('tasks')
@@ -11,17 +11,18 @@ export class TasksController {
     constructor(
         private readonly tasksService: TasksService,
         private readonly agentsGateway: AgentsGateway,
+        private readonly agentsService: AgentsService,
     ) { }
 
     @Post()
     async create(@ActiveOrg() orgId: string, @Body() data: any) {
         let task = await this.tasksService.create(orgId, data);
 
-        // Tarefa criada já com agente atribuído: abre o agente na máquina conectada
+        // Tarefa criada já com agente atribuído: abre um agente só na máquina conectada, os outros vêm pela esteira
         // Sem máquina conectada a tarefa fica criada e o agente pode ser acionado depois pelo dispatch
-        const agentUsers = task.assignees.filter((user) => user.id.startsWith('agent-user-'));
-        for (const user of agentUsers) {
-            const agent = user.id.replace('agent-user-', '');
+        const agents = task.assignees.filter((user) => user.id.startsWith('agent-user-')).map((user) => user.id.replace('agent-user-', ''));
+        if (agents.length > 0) {
+            const agent = await this.agentsService.firstAgent(orgId, agents);
             const dispatched = await this.agentsGateway.dispatchTask(orgId, task.id, { agent }).catch(() => null);
             if (dispatched) task = { ...task, ...dispatched.task };
         }

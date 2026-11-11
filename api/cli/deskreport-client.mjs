@@ -1064,7 +1064,7 @@ function finish(task, exitCode, summary, touchedFiles = [], stopped = false, cla
   notify(`${agentLabels[task.agent]} ${exitCode === 0 ? 'terminou' : 'parou'}: ${task.title}`);
   agents[task.agent] = { state: 'idle', action: exitCode === 0 ? 'Concluído' : `Parou com código ${exitCode}`, model: task.model };
   broadcast();
-  startNext(task.agent);
+  startQueued();
 }
 
 function enqueueTask(task) {
@@ -1082,12 +1082,13 @@ function enqueueTask(task) {
   }
 
   const problem = quotaProblem(task.agent);
-  if (running[task.agent] || problem) {
+  const busy = folderBusy(task);
+  if (running[task.agent] || problem || busy) {
     queues[task.agent] = queues[task.agent] || [];
     queues[task.agent].push(task);
     saveState();
     const blocked = problem && !running[task.agent];
-    const action = blocked ? `Pausado por cota. Na fila: ${task.title}` : `Na fila: ${task.title}`;
+    const action = blocked ? `Pausado por cota. Na fila: ${task.title}` : busy && !running[task.agent] ? `Esperando outro agente liberar a pasta: ${task.title}` : `Na fila: ${task.title}`;
     sendTelemetry({ agent: task.agent, state: blocked ? 'paused' : 'working', project: task.projectPath || task.project, action, taskId: task.taskId });
     return;
   }
@@ -1115,8 +1116,23 @@ function startNext(agent) {
     sendTelemetry({ agent, state: 'paused', action: `Pausado por cota. ${queues[agent]?.length || 0} na fila` });
     return;
   }
-  const next = queues[agent]?.shift();
-  if (next) runTask(next);
+  const next = queues[agent]?.find((task) => !folderBusy(task));
+  if (!next) return;
+  queues[agent] = queues[agent].filter((task) => task !== next);
+  runTask(next);
+}
+
+// Uma execução por vez em cada pasta de projeto, contando a raiz do workspace e os subprojetos dela.
+// Dois agentes na mesma pasta desfazem o trabalho um do outro
+function folderBusy(task) {
+  const cwd = projectDir(task.projectPath || task.project);
+  if (!cwd) return false;
+  return Object.values(running).some((other) => other !== task && other.cwd && (other.cwd === cwd || other.cwd.startsWith(cwd + path.sep) || cwd.startsWith(other.cwd + path.sep)));
+}
+
+// Pasta liberada: qualquer agente pode ter tarefa esperando por ela
+function startQueued() {
+  for (const agent of agentNames) startNext(agent);
 }
 
 // Alerta que trava o agente, ou null quando ele pode trabalhar. O aviso de 60% restante não trava
@@ -1350,6 +1366,7 @@ async function runTask(task) {
   }
   task.model = assignedModel || config.models?.[task.agent] || task.suggestedModel || task.model || '';
   console.log(`Rodando ${task.agent} em ${cwd} para a tarefa ${task.taskId}`);
+  task.cwd = cwd;
   running[task.agent] = task;
   saveState();
   notify(`${agentLabels[task.agent]} começou: ${task.title}`);
@@ -1485,7 +1502,7 @@ async function runTask(task) {
       delete running[task.agent];
       queues[task.agent] = [task, ...(queues[task.agent] || [])];
       saveState();
-      startNext(task.agent);
+      startQueued();
       return;
     }
     const limited = !quotaEnded && !stoppedByUser && code !== 0 && RATE_PATTERN.test(output);
@@ -1603,6 +1620,7 @@ async function switchProvider(task) {
   const next = enabledAgents.find((other) => other !== agent && !quotaProblem(other) && config.agentRoles?.[other]?.some((role) => roles.includes(role)));
   delete running[agent];
   raiseAlert(agent, 'stop', limitAlert(agent));
+  startQueued();
 
   if (next) {
     try {
@@ -2347,14 +2365,16 @@ function taskPrompt(task, cwd) {
 }
 
 function finalRules(task, stage) {
+  const others = 'Nunca desfaça nem apague alteração que você não fez nesta execução (git checkout, git restore, git stash, git clean ou rm de arquivo não rastreado). Se a pasta tiver alteração de outra pessoa ou agente que atrapalhe a tarefa, pare e pergunte no comentário.';
   if (stage === 'qa') {
     return [
       'Você é o QA do time e não altera código nem faz commit.',
       'Se achar um problema, descreva o passo, o esperado e o obtido, e mencione com @ o agente de Engenharia para corrigir. A correção volta para a revisão.',
+      others,
     ];
   }
-  if (task.commit) return ['QA aprovado: faça o commit só dos arquivos desta tarefa, seguindo a regra de commits do projeto. Não faça push nem deploy.'];
-  return ['Não faça commit nem push: o commit vem depois da revisão e do teste.'];
+  if (task.commit) return ['QA aprovado: faça o commit só dos arquivos desta tarefa, seguindo a regra de commits do projeto. Não faça push nem deploy.', others];
+  return ['Não faça commit nem push: o commit vem depois da revisão e do teste.', others];
 }
 
 // Registra o MCP deskreport nos agentes habilitados e tira dos desabilitados

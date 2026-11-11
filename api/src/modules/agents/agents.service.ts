@@ -171,6 +171,17 @@ export class AgentsService {
     return enabled.find((agent) => machines.some((machine) => (machine.agentRoles as any)?.[agent]?.includes(role)));
   }
 
+  // Tarefa nova com vários agentes começa por um só. Com arquiteto entre eles a spec vem antes, senão quem implementa.
+  // Os outros entram pela esteira
+  async firstAgent(organizationId: string, agents: string[]) {
+    const machines = await this.prisma.agentMachine.findMany({ where: { organizationId }, select: { agentRoles: true } });
+    for (const role of ['architecture', 'engineering']) {
+      const agent = agents.find((name) => machines.some((machine) => (machine.agentRoles as any)?.[name]?.includes(role)));
+      if (agent) return agent;
+    }
+    return agents[0];
+  }
+
   listMachines(organizationId: string) {
     return this.prisma.agentMachine.findMany({
       where: { organizationId },

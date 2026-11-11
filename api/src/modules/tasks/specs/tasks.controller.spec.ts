@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { TasksController } from '../tasks.controller';
 import { TasksService } from '../tasks.service';
 import { AgentsGateway } from '../../agents/agents.gateway';
+import { AgentsService } from '../../agents/agents.service';
 
 jest.mock('../../../auth/auth', () => ({ auth: {} }));
 jest.mock('../../agents/agents.gateway', () => ({ AgentsGateway: class AgentsGateway { } }));
@@ -17,6 +18,7 @@ describe('TasksController', () => {
       providers: [
         { provide: TasksService, useValue: tasksService },
         { provide: AgentsGateway, useValue: agentsGateway },
+        { provide: AgentsService, useValue: { firstAgent: jest.fn() } },
       ],
     }).compile();
 
