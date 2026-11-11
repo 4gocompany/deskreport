@@ -1,5 +1,5 @@
 // Gera os pacotes do deskreport-client para Linux, macOS e Windows
-// Saída: ../deskreport.com.br/public/downloads/deskreport-linux.tar.gz, deskreport-macos.tar.gz e deskreport-windows-x64.tar.gz
+// Saída: web/public/downloads/deskreport-linux.tar.gz, deskreport-macos.tar.gz e deskreport-windows-x64.tar.gz
 import { execFileSync } from 'node:child_process';
 import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
@@ -7,7 +7,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const cliDir = fileURLToPath(new URL('.', import.meta.url));
-const webPublic = path.resolve(cliDir, '../../deskreport.com.br/public');
+const webPublic = path.resolve(cliDir, '../../web/public');
 const outDir = path.join(webPublic, 'downloads');
 const apiPackage = JSON.parse(readFileSync(path.resolve(cliDir, '../package.json'), 'utf8'));
 
