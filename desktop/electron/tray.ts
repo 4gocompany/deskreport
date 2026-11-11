@@ -13,8 +13,10 @@ const TOOLTIPS: Record<TrayState, string> = {
   alert: 'DeskReport: precisa de atenção',
 };
 
+// A barra de menus do macOS usa ícone de 18 pontos. O de 32 do Linux e do Windows aparecia com quase o dobro do tamanho
 function trayIcon(state: TrayState) {
-  return nativeImage.createFromPath(path.join(app.getAppPath(), 'build', `tray-${state}.png`));
+  const suffix = process.platform === 'darwin' ? '-mac' : '';
+  return nativeImage.createFromPath(path.join(app.getAppPath(), 'build', `tray-${state}${suffix}.png`));
 }
 
 export function createTray() {
