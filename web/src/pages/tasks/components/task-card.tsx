@@ -29,8 +29,8 @@ export function TaskCard({ task, projectName, onClick }: TaskCardComponentProps)
       onClick={onClick}
       className='bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-3.5 rounded-xl shadow-sm hover:border-blue-500 dark:hover:border-blue-500/50 transition-all group relative cursor-pointer'
     >
-      <div className='flex items-center justify-between mb-2.5'>
-        <div className='flex items-center gap-2'>
+      <div className='mb-2.5'>
+        <div className='flex flex-wrap items-center gap-x-2 gap-y-1'>
           <span
             className='text-[11px] font-medium text-zinc-600 dark:text-zinc-400 px-2 py-0.5 rounded-md bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700/60 max-w-28 truncate'
           >
@@ -42,18 +42,6 @@ export function TaskCard({ task, projectName, onClick }: TaskCardComponentProps)
           </span>
           {priority && <span className={`flex items-center gap-1 text-[11px] font-semibold ${priority.color}`}>{priority.label}</span>}
         </div>
-        {task.assignees && task.assignees.length > 0 && (
-          <div className='flex -space-x-1.5 overflow-hidden'>
-            {task.assignees.slice(0, 3).map((a, i) => (
-              <UserAvatar key={i} user={a} className='w-6 h-6 rounded-full border border-white dark:border-zinc-900 shadow-sm relative z-[1]' />
-            ))}
-            {task.assignees.length > 3 && (
-              <div className='w-6 h-6 rounded-full bg-zinc-100 dark:bg-zinc-800 border border-white dark:border-zinc-900 flex items-center justify-center text-[10px] font-semibold text-zinc-500 z-[0]'>
-                +{task.assignees.length - 3}
-              </div>
-            )}
-          </div>
-        )}
       </div>
 
       <h4 className='text-sm font-medium text-zinc-900 dark:text-zinc-100 mb-2.5 leading-snug group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors'>
@@ -132,9 +120,23 @@ export function TaskCard({ task, projectName, onClick }: TaskCardComponentProps)
             </div>
           )}
         </div>
-        <span className='text-xs text-zinc-400 font-medium'>
-          {new Date(task.createdAt).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}
-        </span>
+        <div className='flex items-center gap-2'>
+          <span className='text-xs text-zinc-400 font-medium'>
+            {new Date(task.createdAt).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}
+          </span>
+          {task.assignees && task.assignees.length > 0 && (
+            <div className='flex -space-x-1.5 overflow-hidden'>
+              {task.assignees.slice(0, 3).map((a, i) => (
+                <UserAvatar key={i} user={a} className='w-5 h-5 rounded-full border border-white dark:border-zinc-900 shadow-sm relative z-[1]' />
+              ))}
+              {task.assignees.length > 3 && (
+                <div className='w-5 h-5 rounded-full bg-zinc-100 dark:bg-zinc-800 border border-white dark:border-zinc-900 flex items-center justify-center text-[10px] font-semibold text-zinc-500 z-[0]'>
+                  +{task.assignees.length - 3}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       </div>
       {!!task.tokensUsed && (
         <div className='mt-2'>
