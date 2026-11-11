@@ -1,6 +1,6 @@
 import { Page } from '../../components/layout/page';
 import { Topbar } from '../../components/layout/topbar';
-import { Users2, Plus, Settings2, MoreVertical, Briefcase, UserCircle2 } from 'lucide-react';
+import { Users2, Plus, Trash2 } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 import { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
@@ -8,6 +8,9 @@ import { useTenantStore } from '../../store';
 import { EditTeamModal } from './edit-team-modal';
 import { authClient } from '../../lib/auth-client';
 import { apiBase } from '../../api/fetcher';
+import { List, ListAction, ListActions, ListRow } from '../../components/ui/list';
+
+const teamColumns = '1fr 96px 120px 72px';
 
 export default function TeamsPage() {
   const { company_id } = useParams();
@@ -78,53 +81,23 @@ export default function TeamsPage() {
                   </Button>
                 </div>
               ) : (
-                <div className='space-y-3'>
+                <List columns={teamColumns} headers={['Nome', 'Membros', 'Tarefas ativas', '']}>
                   {teams.map((team) => (
-                    <div
-                      key={team.id}
-                      className='bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-5 rounded-xl shadow-sm flex items-center justify-between hover:border-zinc-300 dark:hover:border-zinc-700 transition-all group'
-                    >
-                      <div className='flex items-center gap-4'>
-                        {/* Icon Container */}
-                        <div className='w-12 h-12 rounded-full flex items-center justify-center bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400'>
-                          <Users2 size={24} />
-                        </div>
-
-                        {/* Content */}
-                        <div>
-                          <h3 className='font-semibold text-zinc-900 dark:text-zinc-100 flex items-center gap-2'>{team.name}</h3>
-
-                          <div className='flex items-center gap-4 mt-1'>
-                            <div className='flex items-center gap-1.5 text-xs text-zinc-500 dark:text-zinc-400'>
-                              <UserCircle2 size={14} />
-                              Membros: {team._count?.members || 0}
-                            </div>
-                            <div className='flex items-center gap-1.5 text-xs text-zinc-500 dark:text-zinc-400'>
-                              <Briefcase size={14} />
-                              Tarefas Ativas: {team._count?.tasks || 0}
-                            </div>
-                            {team.description && <div className='flex items-center gap-1.5 text-xs text-zinc-400'>{team.description}</div>}
-                          </div>
-                        </div>
+                    <ListRow key={team.id} columns={teamColumns} onClick={() => setEditingTeam(team)}>
+                      <div className='flex items-baseline gap-2.5 min-w-0'>
+                        <span className='text-sm font-medium text-zinc-900 dark:text-zinc-100 truncate'>{team.name}</span>
+                        {team.description && <span className='text-xs text-zinc-400 truncate'>{team.description}</span>}
                       </div>
-
-                      {/* Actions */}
-                      <div className='flex items-center gap-1.5'>
-                        <Button size='icon' variant='ghost' onClick={() => setEditingTeam(team)} title='Configurações da Equipe'>
-                          <Settings2 size={18} />
-                        </Button>
-                        <Button
-                          size='icon'
-                          variant='ghost'
-                          className='text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20'
-                          onClick={() => handleDelete(team.id)}
-                        >
-                          <MoreVertical size={18} />
-                        </Button>
-                      </div>
-                    </div>
+                      <span className='text-sm text-zinc-500'>{team._count?.members || 0}</span>
+                      <span className='text-sm text-zinc-500'>{team._count?.tasks || 0}</span>
+                      <ListActions>
+                        <ListAction title='Excluir equipe' danger onClick={() => handleDelete(team.id)}>
+                          <Trash2 size={14} />
+                        </ListAction>
+                      </ListActions>
+                    </ListRow>
                   ))}
-                </div>
+                </List>
               )}
             </div>
           </div>
