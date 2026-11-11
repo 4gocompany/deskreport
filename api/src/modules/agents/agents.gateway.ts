@@ -207,6 +207,14 @@ export class AgentsGateway implements OnGatewayConnection {
     return { agent };
   }
 
+  // Humano preferiu não seguir: a máquina tira da fila o que esperava a cota do agente
+  dropQuotaQueue(organizationId: string, agent: string) {
+    if (!agentNames.includes(agent)) throw new BadRequestException('agent deve ser um de: ' + agentNames.join(', '));
+
+    this.server.to(machineRoom(organizationId)).emit('agent:quota-drop', { agent });
+    return { agent };
+  }
+
   // Salva a mensagem na sessão e manda a máquina rodar o agente. Com externalId a CLI retoma a própria conversa
   async sendSessionChat(organizationId: string, userId: string, sessionId: string, data: any) {
     if (!(await this.hasMachine(organizationId))) {

@@ -11,6 +11,7 @@ export type AgentStatus = {
   // Alerta de cota. warn só avisa, stop espera autorização humana e block só sai trocando o modelo
   alert?: string;
   quotaLevel?: 'warn' | 'stop' | 'block';
+  queued?: string[];
   project?: string;
   action?: string;
   tool?: string;

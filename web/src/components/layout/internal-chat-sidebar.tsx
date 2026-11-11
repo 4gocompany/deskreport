@@ -184,6 +184,20 @@ export function InternalChatSidebar() {
     }
   }
 
+  // "Interromper": a máquina tira da fila o que esperava a cota do agente
+  async function dropQueue(agent: string) {
+    if (!organization?.id) return;
+    setApproving(agent);
+    try {
+      await authClient.$fetch(`${apiBase}/agents/${agent}/quota/drop`, {
+        method: 'POST',
+        headers: { 'x-organization-id': organization.id },
+      });
+    } finally {
+      setApproving(null);
+    }
+  }
+
   // Nova sessão: o agente começa sem o contexto da conversa anterior
   async function createSession() {
     if (!openAgent || !organization?.id) return null;
@@ -294,15 +308,27 @@ export function InternalChatSidebar() {
                     <AlertTriangle size={14} className='shrink-0 mt-0.5 text-amber-400' />
                     <span className='leading-relaxed'>{a.alert}</span>
                   </div>
-                  {a.quotaLevel === 'stop' && (
-                    <button
-                      onClick={() => continueAgent(a.agent)}
-                      disabled={approving === a.agent}
-                      className='h-7 px-3 rounded-md bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-zinc-950 text-xs font-semibold transition-colors'
-                    >
-                      Continuar mesmo assim
-                    </button>
-                  )}
+                  {a.queued && a.queued.length > 0 && <p className='text-xs text-amber-300/80'>Na fila: {a.queued.join(', ')}</p>}
+                  <div className='flex gap-2'>
+                    {a.quotaLevel === 'stop' && (
+                      <button
+                        onClick={() => continueAgent(a.agent)}
+                        disabled={approving === a.agent}
+                        className='h-7 px-3 rounded-md bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-zinc-950 text-xs font-semibold transition-colors'
+                      >
+                        {a.queued && a.queued.length > 0 ? `Seguir com a fila (${a.queued.length})` : 'Seguir'}
+                      </button>
+                    )}
+                    {(a.quotaLevel === 'stop' || a.quotaLevel === 'block') && a.queued && a.queued.length > 0 && (
+                      <button
+                        onClick={() => dropQueue(a.agent)}
+                        disabled={approving === a.agent}
+                        className='h-7 px-3 rounded-md border border-amber-500/50 hover:bg-amber-500/10 disabled:opacity-50 text-amber-300 text-xs font-semibold transition-colors'
+                      >
+                        Interromper
+                      </button>
+                    )}
+                  </div>
                   {a.quotaLevel === 'block' && <p className='text-xs text-amber-300/80'>Troque o modelo no widget da máquina ou espere a cota renovar.</p>}
                 </div>
               ))

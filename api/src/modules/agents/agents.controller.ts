@@ -56,6 +56,11 @@ export class AgentsController {
     return this.agentsGateway.continueQuota(orgId, agent);
   }
 
+  @Post('agents/:agent/quota/drop')
+  dropQuotaQueue(@ActiveOrg() orgId: string, @Param('agent') agent: string) {
+    return this.agentsGateway.dropQuotaQueue(orgId, agent);
+  }
+
   // Sessões do Chat Lateral, sempre do usuário logado na organização ativa
   @Get('agents/:agent/sessions')
   sessions(@ActiveOrg() orgId: string, @ActiveUser() userId: string, @Param('agent') agent: string) {

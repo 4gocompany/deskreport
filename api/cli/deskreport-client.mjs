@@ -314,6 +314,7 @@ function connectSocket() {
   socket.on('agent:chat', runChat);
   socket.on('agent:team-message', runTeamMessage);
   socket.on('agent:quota-continue', (data) => continueAgent(data?.agent));
+  socket.on('agent:quota-drop', (data) => dropQueue(data?.agent));
   socket.on('agent:stop-task', stopTask);
   socket.on('machine:classify-task', classifyTask);
   socket.on('machine:identity', (data) => { config.machineId = data?.machineId; });
@@ -387,6 +388,7 @@ function handleLocal(req, res) {
   if (route === 'POST /skills/toggle-yagni') return toggleYagni(req, res);
   if (route === 'POST /config/agent-profiles') return changeProfiles(req, res);
   if (route === 'POST /quota/continue') return readJsonBody(req, (data) => sendJson(res, 200, { ok: continueAgent(data?.agent) }));
+  if (route === 'POST /quota/drop') return readJsonBody(req, (data) => sendJson(res, 200, { ok: dropQueue(data?.agent) }));
   if (route === 'POST /auth/start') return startAuth(res);
   if (route === 'POST /config/preferences') return changePreferences(req, res);
   if (route === 'POST /quit') return quit(res, url.searchParams.get('force') === '1');
@@ -958,6 +960,7 @@ function widgetState() {
       quota: quotas[agent] ? Math.round(quotas[agent].used * 100) : null,
       ...agents[agent],
       alert: alerts[agent]?.message || '',
+      queued: (queues[agent] || []).map((task) => task.title),
     })),
     catalog: agentNames.map((agent) => ({
       agent,
@@ -996,6 +999,8 @@ function sendTelemetry(status) {
     model: status?.model || task?.model || config.models?.[status?.agent] || config.models?.[task?.agent] || undefined,
     alert: alert?.message,
     quotaLevel: alert?.level,
+    // Na pausa de cota a pessoa vê o que vai rodar antes de escolher entre seguir e interromper
+    queued: alert ? (queues[status?.agent] || []).map((task) => task.title) : undefined,
     quotaUsed: quota ? Math.round(quota.used * 100) : undefined,
     quotaResetsAt: quota?.resetsAt ? new Date(quota.resetsAt).toISOString() : undefined,
     tokens: task?.tokens,
@@ -1172,6 +1177,20 @@ function continueAgent(agent) {
   console.log(`${agentLabels[agent]} autorizado a continuar acima da margem de cota`);
   sendTelemetry({ agent, state: running[agent] ? 'working' : 'idle', action: 'Autorizado a continuar' });
   startNext(agent);
+  return true;
+}
+
+// "Interromper": tira da fila tudo que esperava a cota e avisa cada tarefa. O agente segue pausado até alguém continuar
+function dropQueue(agent) {
+  if (!alerts[agent] || alerts[agent].level === 'warn') return false;
+  const list = queues[agent] || [];
+  delete queues[agent];
+  saveState();
+  for (const task of list) {
+    socket.emit('machine:task-finished', { taskId: task.taskId, agent, mode: task.mode, exitCode: 1, summary: 'Interrompida na pausa de cota antes de rodar.', stopped: true });
+  }
+  console.log(`Fila do ${agentLabels[agent]} interrompida na pausa de cota (${list.length} tarefas)`);
+  sendTelemetry({ agent, state: 'paused', action: 'Fila interrompida' });
   return true;
 }
 
@@ -2809,7 +2828,10 @@ const widgetHtml = `<!doctype html>
   .prompt-input:focus { border-color: var(--blue); }
 
   .alert { background: var(--amber-soft); color: var(--amber); border-radius: 12px; padding: 12px 14px; font-size: 12px; display: flex; flex-direction: column; gap: 8px; }
+  .alert .queued { font-size: 11px; color: var(--muted); }
+  .alert-actions { display: flex; gap: 6px; }
   .alert button { align-self: flex-start; background: var(--amber); color: #1a1405; border: 0; border-radius: 8px; padding: 6px 10px; font-size: 11px; font-weight: 600; cursor: pointer; }
+  .alert button.ghost { background: transparent; color: var(--amber); border: 1px solid var(--amber); }
 
   .log { display: flex; gap: 10px; padding: 9px 14px; font-size: 11px; }
   .log b { color: var(--blue-text); font-weight: 600; flex: none; width: 24px; }
@@ -3515,13 +3537,27 @@ const widgetHtml = `<!doctype html>
 
   function alertBox(a) {
     const box = el('div', 'alert', a.alert);
-    if (a.quotaLevel !== 'stop') return box;
-    const go = el('button', '', 'Continuar mesmo assim');
-    go.onclick = function () {
-      go.disabled = true;
-      postJson('/quota/continue', { agent: a.agent });
-    };
-    box.append(go);
+    if (a.quotaLevel !== 'stop' && a.quotaLevel !== 'block') return box;
+    const queued = a.queued || [];
+    if (queued.length > 0) box.append(el('div', 'queued', 'Na fila: ' + queued.join(', ')));
+    const actions = el('div', 'alert-actions');
+    if (a.quotaLevel === 'stop') {
+      const go = el('button', '', queued.length > 0 ? 'Seguir com a fila (' + queued.length + ')' : 'Seguir');
+      go.onclick = function () {
+        go.disabled = true;
+        postJson('/quota/continue', { agent: a.agent });
+      };
+      actions.append(go);
+    }
+    if (queued.length > 0) {
+      const drop = el('button', 'ghost small', 'Interromper');
+      drop.onclick = function () {
+        drop.disabled = true;
+        postJson('/quota/drop', { agent: a.agent });
+      };
+      actions.append(drop);
+    }
+    box.append(actions);
     return box;
   }
 

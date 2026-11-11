@@ -33,6 +33,8 @@ export type AgentStatus = {
   // Alerta de cota. warn só avisa, stop espera o humano autorizar e block só sai trocando o modelo ou com a cota renovada
   alert?: string;
   quotaLevel?: 'warn' | 'stop' | 'block';
+  // Títulos das tarefas que esperam a pausa de cota
+  queued?: string[];
   project?: string;
   action?: string;
   tool?: string;
@@ -345,6 +347,7 @@ export class AgentsService {
       state: data.state === 'working' || data.state === 'paused' ? data.state : 'idle',
       alert: text(data.alert),
       quotaLevel: ['warn', 'stop', 'block'].includes(data.quotaLevel) ? data.quotaLevel : undefined,
+      queued: Array.isArray(data.queued) ? data.queued.slice(0, 10).map((title: unknown) => text(title, 120)).filter(Boolean) : undefined,
       project: text(data.project, 100),
       action: text(data.action),
       tool: text(data.tool, 60),
