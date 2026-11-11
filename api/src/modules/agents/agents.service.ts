@@ -531,6 +531,7 @@ export class AgentsService {
       description: task.description,
       // O runner usa o status para saber se o revisor revisa ou escreve a spec
       status: task.status,
+      hasSpec: Boolean(task.specEditedAt),
       // Só os comentários mais recentes. O histórico completo fica no deskreport_get_task
       comments: task.comments.slice(-5).map((c) => `${c.user?.name || 'Membro'}: ${c.content}`),
       project: task.project,

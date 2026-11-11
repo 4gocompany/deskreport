@@ -2379,6 +2379,9 @@ function taskStage(task, cwd) {
   // A esteira pede o QA direto, mesmo para quem também revisa
   if (task.stage === 'qa') return 'qa';
   if (canEdit(task.agent)) return 'implement';
+  // Tarefa nova sem spec começa pela spec. Arquivo alterado na pasta pode ser de outra pessoa e não prova que houve implementação.
+  // Runner com API antiga não recebe hasSpec e segue a regra de baixo
+  if (hasRole(task.agent, 'architecture') && task.hasSpec === false && !['in-progress', 'review'].includes(task.status)) return 'spec';
   // Tarefa já em andamento é revisão, mesmo se o implementador commitou e não sobrou arquivo pendente
   if (hasRole(task.agent, 'review') && (hasChanges(cwd) || ['in-progress', 'review'].includes(task.status))) return 'review';
   if (hasRole(task.agent, 'architecture')) return 'spec';
