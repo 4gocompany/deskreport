@@ -18,6 +18,7 @@ export function EditProjectModal({ project, onClose, onSuccess }: EditProjectMod
   const [pickedFolder, setPickedFolder] = useState('');
   const [defaultMachineId, setDefaultMachineId] = useState('');
   const [status, setStatus] = useState('active');
+  const [endDate, setEndDate] = useState('');
   const [loading, setLoading] = useState(false);
   const [selectedTeamIds, setSelectedTeamIds] = useState<string[]>([]);
   const [autoCommitAfterQa, setAutoCommitAfterQa] = useState(false);
@@ -40,6 +41,7 @@ export function EditProjectModal({ project, onClose, onSuccess }: EditProjectMod
       setPickedFolder('');
       setDefaultMachineId(project.defaultMachineId || '');
       setStatus(project.status || 'active');
+      setEndDate(project.endDate ? project.endDate.slice(0, 10) : '');
       setSelectedTeamIds(project.teams?.map((t: any) => t.teamId) || []);
       setAutoCommitAfterQa(project.autoCommitAfterQa === true);
       setEnvironments(project.environments || []);
@@ -49,6 +51,7 @@ export function EditProjectModal({ project, onClose, onSuccess }: EditProjectMod
       setDefaultMachineId('');
       setDescription('');
       setStatus('active');
+      setEndDate('');
       setSelectedTeamIds([]);
       setAutoCommitAfterQa(false);
       setEnvironments([]);
@@ -86,6 +89,7 @@ export function EditProjectModal({ project, onClose, onSuccess }: EditProjectMod
         location: picked ? { machineId, folder: picked.name, path: picked.path } : undefined,
         defaultMachineId: defaultMachineId || undefined,
         status,
+        endDate: endDate || null,
         autoCommitAfterQa,
         teamIds: selectedTeamIds,
       };
@@ -158,6 +162,16 @@ export function EditProjectModal({ project, onClose, onSuccess }: EditProjectMod
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder='Ex: Comercial, Marketing...'
+              className='w-full bg-zinc-50 dark:bg-zinc-800/50 border border-zinc-200 dark:border-zinc-700 rounded-lg px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-medium'
+            />
+          </div>
+
+          <div className='space-y-1.5'>
+            <label className='text-[10px] font-black  text-zinc-400'>Prazo de Entrega</label>
+            <input
+              type='date'
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
               className='w-full bg-zinc-50 dark:bg-zinc-800/50 border border-zinc-200 dark:border-zinc-700 rounded-lg px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-medium'
             />
           </div>

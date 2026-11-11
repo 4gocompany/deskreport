@@ -1,7 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Inbox, LayoutDashboard, FolderDot, CheckCircle, Bell, Settings, LogOut, User, Circle, Building, Users2 } from 'lucide-react';
+import { Inbox, LayoutDashboard, FolderDot, CheckCircle, Settings, LogOut, User, Circle, Building, Users2 } from 'lucide-react';
 import { NavLink, useParams, useNavigate } from 'react-router-dom';
 import { SubmenuItem } from '../../store';
+import { useInbox } from '../../pages/resume/use-inbox';
 import { useOrganization, useSession, authClient } from '../../lib/auth-client';
 
 export function Navbar() {
@@ -13,6 +14,7 @@ export function Navbar() {
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   const cId = company_id;
+  const inboxCount = useInbox(cId).length;
   const pId = project_id ?? 'all';
 
   useEffect(() => {
@@ -56,7 +58,7 @@ export function Navbar() {
           <div className='flex flex-col py-2 w-full'>
             {cId && (
               <ul className='space-y-3 w-full animate-in fade-in duration-500'>
-                <MenuNavLink to={`/${cId}/resume`} icon={<Inbox size={22} strokeWidth={2} />} label='Início' />
+                <MenuNavLink to={`/${cId}/resume`} icon={<Inbox size={22} strokeWidth={2} />} label='Início' badge={inboxCount} />
                 <MenuNavLink to={`/${cId}/dashboard`} icon={<LayoutDashboard size={22} strokeWidth={2} />} label='Painel' />
 
 
@@ -67,7 +69,6 @@ export function Navbar() {
 
                 {isModuleEnabled('tasks') && <MenuNavLink to={`/${cId}/${pId}/tasks`} icon={<CheckCircle size={22} strokeWidth={2} />} label='Tarefas' />}
 
-                <MenuNavLink to={`/${cId}/notifications`} icon={<Bell size={22} strokeWidth={2} />} label='Avisos' />
                 <MenuNavLink to={`/${cId}/settings`} icon={<Settings size={22} strokeWidth={2} />} label='Configs' />
               </ul>
             )}
@@ -154,7 +155,7 @@ export function Navbar() {
   );
 }
 
-export function MenuNavLink({ to, icon, label }: { to: string; icon: React.ReactNode; label: string }) {
+export function MenuNavLink({ to, icon, label, badge }: { to: string; icon: React.ReactNode; label: string; badge?: number }) {
   return (
     <li className='relative group'>
       <NavLink
@@ -169,8 +170,13 @@ export function MenuNavLink({ to, icon, label }: { to: string; icon: React.React
         {({ isActive }) => (
           <div className='flex flex-col items-center justify-center gap-1 transition-all duration-200 py-1'>
             <div
-              className={`p-1 rounded-lg transition-all duration-200 flex items-center justify-center ${isActive ? 'text-white' : 'text-zinc-400 group-hover:text-white'}`}
+              className={`relative p-1 rounded-lg transition-all duration-200 flex items-center justify-center ${isActive ? 'text-white' : 'text-zinc-400 group-hover:text-white'}`}
             >
+              {Boolean(badge) && (
+                <span className='absolute -top-1 -right-2 min-w-4 h-4 px-1 rounded-full bg-blue-600 text-white text-[10px] font-semibold flex items-center justify-center'>
+                  {badge}
+                </span>
+              )}
               {React.cloneElement(icon as React.ReactElement, {
                 fill: isActive ? '#737373' : 'none',
                 stroke: isActive ? 'currentColor' : 'currentColor',

@@ -10,6 +10,7 @@ export type Machine = {
   folders: MachineFolder[] | null;
   agentRoles: Record<string, string[]> | null;
   online: boolean;
+  lastSeenAt?: string | null;
 };
 
 export function useMachines(orgId?: string) {

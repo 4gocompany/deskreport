@@ -77,6 +77,13 @@ export class TasksController {
         return task;
     }
 
+    @Post(':id/ask')
+    async ask(@ActiveOrg() orgId: string, @ActiveUser() userId: string, @Param('id') id: string, @Body() data: any) {
+        const task = await this.tasksService.askPo(id, orgId, userId, data);
+        this.agentsGateway.emitTask(orgId, 'task:updated', task);
+        return task;
+    }
+
     @Delete(':id')
     remove(@ActiveOrg() orgId: string, @Param('id') id: string) {
         return this.tasksService.remove(id, orgId);

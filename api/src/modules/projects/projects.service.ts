@@ -26,6 +26,15 @@ export interface EnvironmentDto {
     machineId?: string | null;
 }
 
+// Vazio limpa a data, texto como YYYY-MM-DD vira Date e undefined mantém o que está salvo
+function toDate(value?: string | Date | null) {
+    if (value === undefined) return undefined;
+    if (value === null || value === '') return null;
+    const date = new Date(value);
+    if (isNaN(date.getTime())) throw new BadRequestException('Data inválida');
+    return date;
+}
+
 const projectInclude = {
     teams: { include: { team: true } },
     environments: { orderBy: { createdAt: 'asc' as const } },
@@ -79,8 +88,8 @@ export class ProjectsService {
                 folder: found?.name || folder,
                 remote: found?.remote,
                 defaultMachineId,
-                startDate,
-                endDate,
+                startDate: toDate(startDate),
+                endDate: toDate(endDate),
                 status,
                 autoCommitAfterQa,
                 locations: found ? { create: { machineId: location.machineId, folder: found.name, path: found.path, remote: found.remote } } : undefined,
@@ -215,7 +224,7 @@ export class ProjectsService {
 
         await this.prisma.project.update({
             where: { id },
-            data: { name, description, folder, remote: found ? found.remote : undefined, defaultMachineId, startDate, endDate, status, autoCommitAfterQa },
+            data: { name, description, folder, remote: found ? found.remote : undefined, defaultMachineId, startDate: toDate(startDate), endDate: toDate(endDate), status, autoCommitAfterQa },
         });
 
         if (found) {

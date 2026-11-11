@@ -10,7 +10,7 @@ export type TaskComment = {
   taskId: string;
   userId: string;
   content: string;
-  metadata?: { agent?: string; harness?: string; model?: string } | null;
+  metadata?: { agent?: string; harness?: string; model?: string; exitCode?: number; error?: boolean; stage?: string } | null;
   createdAt: string | Date;
   user: {
     id?: string;
@@ -19,11 +19,14 @@ export type TaskComment = {
   }
 }
 
-// Pergunta aberta por um agente: enquanto existir, a tarefa não vai para Release
+// Pergunta aberta por um agente ou pela equipe: enquanto existir, a tarefa não vai para Release
 export type TaskWaitingFor = {
-  agent: string;
+  agent?: string;
+  authorId?: string;
+  authorName?: string;
   question: string;
   options?: string[];
+  multiSelect?: boolean;
   createdAt: string;
 }
 
@@ -54,6 +57,8 @@ export type TaskCardProps = {
   description?: string;
   tokensUsed?: number;
   tokenBudget?: number;
+  dueDate?: string | null;
+  machineId?: string | null;
   waitingFor?: TaskWaitingFor | null;
   specEditedBy?: string | null;
   specEditedAt?: string | null;

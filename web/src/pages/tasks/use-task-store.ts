@@ -23,6 +23,7 @@ interface TaskStore {
   fetchTasks: () => Promise<void>;
   addComment: (taskId: string, content: string, agent?: string) => Promise<void>;
   dispatchTask: (id: string, agent: string, machineId?: string) => Promise<string | null>;
+  askPo: (taskId: string, payload: { question: string; options?: string[]; multiSelect?: boolean; agent?: string }) => Promise<void>;
   stopTask: (id: string) => Promise<string | null>;
   fetchTerminal: (id: string) => Promise<string>;
   fetchTaskDiff: (id: string) => Promise<string>;
@@ -97,6 +98,15 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
       tasks: state.tasks.map((t) => (t.id === id ? { ...t, status: 'in-progress' } : t)),
     }));
     return null;
+  },
+  askPo: async (taskId, payload) => {
+    const { data, error } = await authClient.$fetch<TaskCardProps>(`${API_URL}/${taskId}/ask`, {
+      method: 'POST',
+      body: payload,
+      headers: { 'x-organization-id': getOrgId() },
+    });
+    if (error || !data) return console.error('Failed to ask PO:', error);
+    set((state) => ({ tasks: state.tasks.map((t) => (t.id === taskId ? data : t)) }));
   },
   stopTask: async (id) => {
     const { error } = await authClient.$fetch(`${API_URL}/${id}/stop`, {

@@ -2635,7 +2635,8 @@ const mcpTools = [
       {
         task: taskRef,
         question: { type: 'string' },
-        options: { type: 'array', items: { type: 'string' }, description: 'Respostas prontas para a pessoa escolher com um clique, até 6' },
+        options: { type: 'array', items: { type: 'string' }, description: 'Respostas prontas para a pessoa escolher com um clique, até 8' },
+        multiSelect: { type: 'boolean', description: 'Permite selecionar mais de uma opção na resposta' },
       },
       ['task', 'question'],
     ),
@@ -2685,7 +2686,7 @@ function callTool(name, args, agent) {
   if (name === 'deskreport_create_task') return mcpApi('POST', '/agents/mcp/tasks', { ...fields, agent });
   if (name === 'deskreport_update_task') return mcpApi('PATCH', taskPath, fields);
   if (name === 'deskreport_comment_task') return mcpApi('POST', `${taskPath}/comments`, { content: fields.content, agent, model: process.env.DESKREPORT_MODEL || config.models?.[agent] || '', stage: process.env.DESKREPORT_STAGE || undefined });
-  if (name === 'deskreport_ask_human') return mcpApi('POST', `${taskPath}/ask`, { question: fields.question, options: fields.options, agent });
+  if (name === 'deskreport_ask_human') return mcpApi('POST', `${taskPath}/ask`, { question: fields.question, options: fields.options, multiSelect: fields.multiSelect, agent });
   if (name === 'deskreport_dispatch_task') return mcpApi('POST', `${taskPath}/dispatch`, fields);
   if (name === 'deskreport_send_agent_message') {
     return mcpApi('POST', '/agents/mcp/team/messages', { toAgent: args.toAgent, message: args.message, taskId: args.taskId, agent, projectPath: currentProject() });

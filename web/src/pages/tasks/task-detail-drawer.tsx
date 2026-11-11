@@ -18,6 +18,7 @@ import {
   Square,
   Terminal,
   MessageCircleQuestion,
+  CalendarDays,
 } from 'lucide-react';
 import { TaskCardProps, TaskComment, TaskStatus, TaskType, PRIORITY_CONFIG, STATUS_CONFIG, TASK_TYPE_CONFIG } from './tasks-data';
 import { useState, useEffect, useMemo, useRef } from 'react';
@@ -32,6 +33,7 @@ import { useParams } from 'react-router-dom';
 import { useSession } from '../../lib/auth-client';
 import { activeStep, taskSteps } from './task-pipeline';
 import { TaskTerminalDialog } from './components/task-terminal-dialog';
+import { OptionList } from './components/option-list';
 import { TokenMeter } from './components/token-meter';
 import { UserAvatar } from './components/user-avatar';
 import { TaskAttachments } from './components/task-attachments';
@@ -150,7 +152,12 @@ export function TaskDetailDrawer({
   const [isEditingDescription, setIsEditingDescription] = useState(false);
   const [editedDescription, setEditedDescription] = useState('');
 
-  const { updateTask, addTask, addComment, dispatchTask, stopTask } = useTaskStore();
+  const [isSignalOpen, setIsSignalOpen] = useState(false);
+  const [signalQuestion, setSignalQuestion] = useState('');
+  const [signalOptions, setSignalOptions] = useState('');
+  const [signalMulti, setSignalMulti] = useState(false);
+
+  const { updateTask, addTask, addComment, askPo, dispatchTask, stopTask } = useTaskStore();
   const { projects, teams, fetchTeams, members, fetchMembers } = useTenantStore();
   const { data: session } = useSession();
   const user = session?.user;
@@ -433,6 +440,17 @@ export function TaskDetailDrawer({
     }
   }
 
+  async function handleSignalPo() {
+    if (!displayTask || !signalQuestion.trim()) return;
+
+    const options = signalOptions.split(/[\n,]/).map((option) => option.trim()).filter(Boolean);
+    await askPo(displayTask.id, { question: signalQuestion.trim(), options, multiSelect: signalMulti });
+    setSignalQuestion('');
+    setSignalOptions('');
+    setSignalMulti(false);
+    setIsSignalOpen(false);
+  }
+
   async function handleAddComment() {
     if (!displayTask || !comment.trim() || isSubmittingComment) return;
 
@@ -630,33 +648,26 @@ export function TaskDetailDrawer({
                   )}
                 </div>
 
-                {/* Pergunta aberta pelo agente */}
+                {/* Pergunta aberta pelo agente ou pela equipe */}
                 {task && displayTask.waitingFor && (
                   <div className='rounded-xl border border-amber-200 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-500/10 p-3.5 space-y-2.5'>
                     <div className='flex items-center gap-2 text-xs font-semibold text-amber-700 dark:text-amber-300'>
                       <MessageCircleQuestion size={14} />
-                      {agentProfile(displayTask.waitingFor.agent).name} está aguardando você
+                      {displayTask.waitingFor.agent ? agentProfile(displayTask.waitingFor.agent).name : displayTask.waitingFor.authorName || 'A equipe'} está aguardando você
                     </div>
                     <p className='text-sm text-zinc-800 dark:text-zinc-200'>
                       {displayTask.waitingFor.question}
                     </p>
                     {displayTask.waitingFor.options && displayTask.waitingFor.options.length > 0 && (
-                      <div className='flex flex-wrap gap-2'>
-                        {displayTask.waitingFor.options.map((option) => (
-                          <Button
-                            key={option}
-                            size='sm'
-                            variant='outline'
-                            onClick={() => handleAnswer(option)}
-                            disabled={isSubmittingComment}
-                          >
-                            {option}
-                          </Button>
-                        ))}
-                      </div>
+                      <OptionList
+                        options={displayTask.waitingFor.options}
+                        multiSelect={displayTask.waitingFor.multiSelect}
+                        disabled={isSubmittingComment}
+                        onConfirm={(selected) => handleAnswer(selected.join(', '))}
+                      />
                     )}
                     <p className='text-xs text-zinc-500'>
-                      Ou responda com texto abaixo acionando {agentProfile(displayTask.waitingFor.agent).name}.
+                      Ou responda com texto abaixo{displayTask.waitingFor.agent ? ` acionando ${agentProfile(displayTask.waitingFor.agent).name}` : ''}.
                     </p>
                   </div>
                 )}
@@ -696,14 +707,45 @@ export function TaskDetailDrawer({
                           })}
                         </select>
                       </div>
-                      <Button
-                        size='sm'
-                        onClick={handleAddComment}
-                        disabled={!comment.trim() || isSubmittingComment}
-                      >
-                        {isSubmittingComment ? 'Enviando...' : 'Comentar'}
-                      </Button>
+                      <div className='flex items-center gap-2'>
+                        <Button size='sm' variant='ghost' onClick={() => setIsSignalOpen(!isSignalOpen)}>
+                          Sinalizar PO
+                        </Button>
+                        <Button
+                          size='sm'
+                          onClick={handleAddComment}
+                          disabled={!comment.trim() || isSubmittingComment}
+                        >
+                          {isSubmittingComment ? 'Enviando...' : 'Comentar'}
+                        </Button>
+                      </div>
                     </div>
+                    {isSignalOpen && (
+                      <div className='space-y-2 border-t border-zinc-200 dark:border-zinc-800 pt-2.5'>
+                        <input
+                          value={signalQuestion}
+                          onChange={(e) => setSignalQuestion(e.target.value)}
+                          placeholder='Dúvida ou decisão para o Product Owner'
+                          className='w-full h-8 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg px-2.5 text-sm text-zinc-800 dark:text-zinc-200 placeholder:text-zinc-400 outline-none focus:border-blue-500'
+                        />
+                        <textarea
+                          rows={2}
+                          value={signalOptions}
+                          onChange={(e) => setSignalOptions(e.target.value)}
+                          placeholder='Opções de resposta, uma por linha ou separadas por vírgula (opcional)'
+                          className='w-full bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg p-2.5 text-sm text-zinc-800 dark:text-zinc-200 placeholder:text-zinc-400 outline-none focus:border-blue-500 resize-none'
+                        />
+                        <div className='flex items-center justify-between gap-2'>
+                          <label className='flex items-center gap-2 text-xs text-zinc-600 dark:text-zinc-400 cursor-pointer'>
+                            <input type='checkbox' checked={signalMulti} onChange={(e) => setSignalMulti(e.target.checked)} />
+                            Permitir múltipla seleção
+                          </label>
+                          <Button size='sm' onClick={handleSignalPo} disabled={!signalQuestion.trim()}>
+                            Sinalizar
+                          </Button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -870,6 +912,19 @@ export function TaskDetailDrawer({
                       </option>
                     ))}
                   </select>
+                </div>
+
+                <div className='flex items-center justify-between gap-2'>
+                  <span className='flex items-center gap-2 text-xs font-medium text-zinc-500 dark:text-zinc-400'>
+                    <CalendarDays size={13} />
+                    Prazo
+                  </span>
+                  <input
+                    type='date'
+                    value={displayTask.dueDate ? displayTask.dueDate.slice(0, 10) : ''}
+                    onChange={(e) => handlePropertyUpdate('dueDate', e.target.value || null)}
+                    className={selectClass}
+                  />
                 </div>
               </div>
 

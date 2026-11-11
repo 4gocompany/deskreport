@@ -79,6 +79,8 @@ export type Organization = { id: string; name: string };
 export type Project = {
   id: string;
   name: string;
+  status?: string;
+  endDate?: string | null;
   teams?: { teamId: string; team?: Team }[];
   completion_percentage?: number;
   remote?: string | null;
@@ -139,6 +141,8 @@ export const useTenantStore = create<TenantStore>()((set, get) => ({
             ...data.map((p) => ({
               id: p.id,
               name: p.name,
+              status: p.status,
+              endDate: p.endDate,
               teams: p.teams,
               completion_percentage: p.completion_percentage,
               remote: p.remote,

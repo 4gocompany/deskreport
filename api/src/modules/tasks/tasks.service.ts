@@ -4,6 +4,15 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { budgets, classifyWithJev, complexities, jevKey, routing } from './complexity';
 import { taskTypes } from './task-types';
 
+// Vazio limpa o prazo, texto de data vira Date e undefined mantém o que está salvo
+function toDate(value: unknown) {
+    if (value === undefined) return undefined;
+    if (value === null || value === '') return null;
+    const date = new Date(value as string);
+    if (isNaN(date.getTime())) throw new BadRequestException('Data inválida');
+    return date;
+}
+
 @Injectable()
 export class TasksService {
     constructor(private prisma: PrismaService) { }
@@ -20,6 +29,7 @@ export class TasksService {
     async create(organizationId: string, data: any) {
         const { assigneeIds, ...rest } = data;
         rest.companyId = organizationId;
+        if (rest.dueDate !== undefined) rest.dueDate = toDate(rest.dueDate);
         rest.machineId = await this.checkMachine(organizationId, rest.machineId);
         if (rest.type !== undefined && !taskTypes.includes(rest.type)) throw new BadRequestException('type deve ser um de: ' + taskTypes.join(', '));
         // Sem complexidade escolhida, a tarefa espera a spec pronta para ser classificada
@@ -79,6 +89,7 @@ export class TasksService {
         if (type !== undefined && !taskTypes.includes(type)) throw new BadRequestException('type deve ser um de: ' + taskTypes.join(', '));
         // Ajuste manual do tier pela pessoa. Valor fora da lista é ignorado
         const complexity = complexities.includes(data.complexity) ? data.complexity : undefined;
+        const tokenBudget = complexity ? budgets[complexity] : Number.isInteger(data.tokenBudget) && data.tokenBudget > 0 ? data.tokenBudget : undefined;
         const machineId = data.machineId === undefined ? undefined : await this.checkMachine(organizationId, data.machineId);
         if (status === 'release' && task.waitingFor) {
             throw new BadRequestException('A tarefa tem uma pergunta de agente aguardando resposta');
@@ -93,10 +104,10 @@ export class TasksService {
                 status,
                 priority,
                 tags,
-                dueDate,
+                dueDate: dueDate === undefined ? undefined : toDate(dueDate),
                 teamId,
                 complexity,
-                tokenBudget: complexity ? budgets[complexity] : undefined,
+                tokenBudget,
                 type,
                 machineId,
                 assignees: assigneeIds ? {
@@ -137,6 +148,29 @@ export class TasksService {
 
         // Comentário da pessoa responde a pergunta aberta pelo agente
         await this.prisma.task.update({ where: { id }, data: { waitingFor: Prisma.DbNull } });
+
+        return this.findOne(id, organizationId);
+    }
+
+    // Sinalização da equipe para o Product Owner: segura o Release até alguém responder
+    async askPo(id: string, organizationId: string, userId: string, data: any) {
+        await this.ensureTaskInOrg(id, organizationId);
+
+        const question = typeof data?.question === 'string' ? data.question.trim().slice(0, 2000) : '';
+        if (!question) throw new BadRequestException('Informe question');
+
+        const options = Array.isArray(data?.options)
+            ? data.options.filter((option: unknown) => typeof option === 'string' && option.trim()).slice(0, 8).map((option: string) => option.trim().slice(0, 100))
+            : [];
+        const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { name: true } });
+        const agent = typeof data?.agent === 'string' && data.agent ? data.agent : undefined;
+
+        await this.prisma.task.update({
+            where: { id },
+            data: {
+                waitingFor: { agent, authorId: userId, authorName: user?.name, question, options, multiSelect: Boolean(data?.multiSelect), createdAt: new Date().toISOString() },
+            },
+        });
 
         return this.findOne(id, organizationId);
     }

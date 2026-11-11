@@ -10,7 +10,6 @@ import Settings from './pages/settings';
 import { TaskList } from './pages/tasks/list';
 import Projects from './pages/projects';
 import Dashboard from './pages/dashboard';
-import Notifications from './pages/notifications';
 import { TaskBoards } from './pages/tasks/boards';
 import TaskDataManagement from './pages/tasks/data-management';
 import OrganizationsPage from './pages/organizations';
@@ -103,7 +102,7 @@ export const router = createBrowserRouter([
       },
       {
         path: 'notifications',
-        element: <Notifications />,
+        loader: ({ params }) => redirect(`/${params.company_id}/resume`),
       },
     ],
   },

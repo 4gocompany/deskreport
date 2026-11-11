@@ -781,13 +781,13 @@ export class AgentsService {
     if (!question) throw new BadRequestException('Informe question');
 
     const options = Array.isArray(data?.options)
-      ? data.options.filter((option: unknown) => typeof option === 'string' && option.trim()).slice(0, 6).map((option: string) => option.trim().slice(0, 100))
+      ? data.options.filter((option: unknown) => typeof option === 'string' && option.trim()).slice(0, 8).map((option: string) => option.trim().slice(0, 100))
       : [];
 
     const id = await this.findTaskId(organizationId, ref);
     return this.prisma.task.update({
       where: { id },
-      data: { waitingFor: { agent, question, options, createdAt: new Date().toISOString() } },
+      data: { waitingFor: { agent, question, options, multiSelect: Boolean(data?.multiSelect), createdAt: new Date().toISOString() } },
       include: taskInclude,
     });
   }
@@ -1113,7 +1113,15 @@ function toHtml(value: string) {
 
 function commentMetadata(agent: string, data: any) {
   const model = text(data?.model, 120)?.trim();
-  return { agent, harness: agent, model: model || undefined };
+  const exitCode = typeof data?.exitCode === 'number' ? data.exitCode : undefined;
+  return {
+    agent,
+    harness: agent,
+    model: model || undefined,
+    exitCode,
+    error: exitCode !== undefined && exitCode !== 0 && !data?.stopped ? true : undefined,
+    stage: text(data?.stage, 40),
+  };
 }
 
 function cleanSummary(raw: string | undefined): string {
@@ -1215,6 +1223,7 @@ export function approved(text: string) {
 // O comentário é exibido como HTML no painel, então tudo que vem do agente é escapado
 function finishedComment(data: any) {
   let result = data.stopped ? 'Execução parada pelo usuário.' : '';
+  if (typeof data.exitCode === 'number' && data.exitCode !== 0 && !data.stopped) result = `Erro na execução (código ${data.exitCode}).`;
   if (data.exitCode === 0 && stageTitles[data.stage]) result = stageTitles[data.stage];
   const verdict = typeof data.comment === 'string' && data.comment ? data.comment : typeof data.summary === 'string' ? data.summary : '';
   if (data.exitCode === 0 && data.stage === 'review') result = approved(verdict) ? 'Revisão concluída: aprovada.' : 'Revisão concluída: com ajustes.';
