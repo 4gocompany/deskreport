@@ -4,6 +4,7 @@ import { MessageCircleQuestion } from 'lucide-react';
 import { agentProfile, executionPlace, findTaskAgent, useAgentsStore } from '../use-agents';
 import { activeStep, taskSteps } from '../task-pipeline';
 import { TokenMeter } from './token-meter';
+import { UserAvatar } from './user-avatar';
 
 interface TaskCardComponentProps {
   task: TaskCardProps;
@@ -44,12 +45,7 @@ export function TaskCard({ task, projectName, onClick }: TaskCardComponentProps)
         {task.assignees && task.assignees.length > 0 && (
           <div className='flex -space-x-1.5 overflow-hidden'>
             {task.assignees.slice(0, 3).map((a, i) => (
-              <img
-                key={i}
-                src={a.avatar}
-                className='w-6 h-6 rounded-full border border-white dark:border-zinc-900 bg-zinc-100 shadow-sm relative z-[1]'
-                title={a.name}
-              />
+              <UserAvatar key={i} user={a} className='w-6 h-6 rounded-full border border-white dark:border-zinc-900 shadow-sm relative z-[1]' />
             ))}
             {task.assignees.length > 3 && (
               <div className='w-6 h-6 rounded-full bg-zinc-100 dark:bg-zinc-800 border border-white dark:border-zinc-900 flex items-center justify-center text-[10px] font-semibold text-zinc-500 z-[0]'>

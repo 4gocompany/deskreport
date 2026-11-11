@@ -44,7 +44,7 @@ export type TaskCardProps = {
   assignees?: {
     id: string;
     name: string;
-    avatar: string;
+    image?: string | null;
   }[];
   team?: {
     id: string;

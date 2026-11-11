@@ -9,6 +9,7 @@ import { TaskFiltersComponent } from './task-filters-component';
 import { TaskDetailDrawer } from './task-detail-drawer';
 import { Button } from '../../components/ui/button';
 import { useState, useEffect } from 'react';
+import { UserAvatar } from './components/user-avatar';
 
 export function TaskList() {
   const { company_id, project_id } = useParams();
@@ -134,12 +135,7 @@ export function TaskList() {
                     {task.assignees && task.assignees.length > 0 ? (
                       <div className='flex items-center -space-x-1.5'>
                         {task.assignees.map((a, i) => (
-                          <img
-                            key={i}
-                            src={a.avatar}
-                            className='w-6 h-6 rounded-full border border-white dark:border-zinc-900 bg-zinc-100 shadow-sm'
-                            title={a.name}
-                          />
+                          <UserAvatar key={i} user={a} className='w-6 h-6 rounded-full border border-white dark:border-zinc-900 shadow-sm' />
                         ))}
                         {task.assignees.length === 1 && (
                           <span className='text-xs text-zinc-600 dark:text-zinc-300 font-medium truncate ml-3'>{task.assignees[0].name}</span>

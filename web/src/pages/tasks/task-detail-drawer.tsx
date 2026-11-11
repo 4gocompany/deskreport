@@ -33,6 +33,7 @@ import { useSession } from '../../lib/auth-client';
 import { activeStep, taskSteps } from './task-pipeline';
 import { TaskTerminalDialog } from './components/task-terminal-dialog';
 import { TokenMeter } from './components/token-meter';
+import { UserAvatar } from './components/user-avatar';
 import { TaskAttachments } from './components/task-attachments';
 
 interface TaskDetailDrawerProps {
@@ -343,7 +344,7 @@ export function TaskDetailDrawer({
       const newAssigneeIds = value as string[];
       updatedTask.assignees = members
         .filter((m) => newAssigneeIds.includes(m.user.id))
-        .map((m) => ({ id: m.user.id, name: m.user.name, avatar: m.user.image || '' }));
+        .map((m) => ({ id: m.user.id, name: m.user.name, image: m.user.image }));
     }
 
     setDisplayTask(updatedTask);
@@ -718,11 +719,7 @@ export function TaskDetailDrawer({
                       className='flex gap-3 p-3 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/60'
                     >
                       <div className='w-7 h-7 rounded-full bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center border border-zinc-200 dark:border-zinc-700 overflow-hidden shrink-0'>
-                        {c.user?.image ? (
-                          <img src={c.user.image} alt={c.trace?.name || c.user.name} className='w-full h-full object-cover' />
-                        ) : (
-                          <User size={13} className='text-zinc-500' />
-                        )}
+                        {c.user ? <UserAvatar user={c.user} className='w-full h-full' /> : <User size={13} className='text-zinc-500' />}
                       </div>
                       <div className='flex-1 min-w-0 space-y-1'>
                         <div className='flex items-center justify-between gap-2'>
@@ -938,7 +935,7 @@ export function TaskDetailDrawer({
                                 className='flex items-center gap-2 p-2 hover:bg-zinc-50 dark:hover:bg-zinc-800 cursor-pointer rounded-lg transition-colors'
                                 onClick={() => handleAddAssignee(m.user.id)}
                               >
-                                <img src={withAgentProfile(m.user).image} className='w-5 h-5 rounded-full' />
+                                <UserAvatar user={m.user} className='w-5 h-5 rounded-full' />
                                 <span className='text-xs font-medium text-zinc-700 dark:text-zinc-200 truncate'>
                                   {withAgentProfile(m.user).name}
                                 </span>
@@ -961,8 +958,6 @@ export function TaskDetailDrawer({
                     const memberUser = member?.user && withAgentProfile(member.user);
                     const name =
                       memberUser?.name || displayTask.assignees?.[i]?.name || 'Usuário';
-                    const avatar =
-                      memberUser?.image || displayTask.assignees?.[i]?.avatar || '';
 
                     return (
                       <div
@@ -970,11 +965,7 @@ export function TaskDetailDrawer({
                         className='flex items-center justify-between px-2.5 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900'
                       >
                         <div className='flex items-center gap-2 min-w-0'>
-                          {avatar ? (
-                            <img src={avatar} className='w-5 h-5 rounded-full shrink-0' />
-                          ) : (
-                            <User size={13} className='text-zinc-400 shrink-0' />
-                          )}
+                          <UserAvatar user={memberUser || displayTask.assignees?.[i] || { name }} className='w-5 h-5 rounded-full shrink-0' />
                           <span className='text-xs font-medium text-zinc-700 dark:text-zinc-200 truncate'>
                             {name}
                           </span>
