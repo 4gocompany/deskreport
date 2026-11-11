@@ -1070,6 +1070,8 @@ const stageTitles: Record<string, string> = {
 function finishedComment(data: any) {
   let result = data.stopped ? 'Execução parada pelo usuário.' : '';
   if (data.exitCode === 0 && stageTitles[data.stage]) result = stageTitles[data.stage];
+  // QA sem ambiente no ar não abriu o navegador: o título não pode dizer que o QA foi feito
+  if (data.exitCode === 0 && data.stage === 'qa' && data.qaWithoutEnvironment) result = 'QA só no código: sem ambiente para testar no navegador.';
   const summary = cleanSummary(text(data.summary, 4000));
   const changelog = text(data.changelog, 4000)?.trim();
   const files = Array.isArray(data.touchedFiles) ? data.touchedFiles.slice(0, 50).map((file: unknown) => text(file) || '') : [];

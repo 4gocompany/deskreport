@@ -2,7 +2,7 @@
 // Roda os agentes só quando o painel dispara uma tarefa e serve o widget em 127.0.0.1:4399
 // Uso: deskreport [start|setup|login|widget|mcp] [--widget] [--agent <agente>]
 import { spawn, execFile, execFileSync } from 'node:child_process';
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { chmodSync, copyFileSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import os from 'node:os';
@@ -977,8 +977,27 @@ function widgetState() {
     qaEmail: qaEmail(),
     harnessModelCatalog,
     yagniMode: Boolean(config.yagniMode),
+    updateAvailable,
     logs,
   };
+}
+
+// O build-release publica o hash do runner junto com os pacotes. Hash diferente do deste arquivo: o widget pede para reinstalar
+let updateAvailable = false;
+const clientHash = createHash('sha256').update(readFileSync(clientScript)).digest('hex').slice(0, 16);
+
+async function checkUpdate() {
+  try {
+    const res = await fetch(`${config.webUrl}/downloads/client-version.txt?v=${Date.now()}`, { signal: AbortSignal.timeout(10_000) });
+    if (!res.ok) return;
+    const latest = (await res.text()).trim();
+    const outdated = /^[0-9a-f]{16}$/.test(latest) && latest !== clientHash;
+    if (outdated === updateAvailable) return;
+    updateAvailable = outdated;
+    broadcast();
+  } catch {
+    // Sem rede: tenta de novo na próxima hora
+  }
 }
 
 function broadcast() {
@@ -1065,7 +1084,7 @@ function cleanSummary(raw) {
 function finish(task, exitCode, summary, touchedFiles = [], stopped = false, classification = null, sections = null, stage = null) {
   delete running[task.agent];
   saveState();
-  socket.emit('machine:task-finished', { taskId: task.taskId, agent: task.agent, mode: task.mode, handoff: Boolean(task.comment), exitCode, summary, touchedFiles, stopped, tokens: task.tokens, contextTokens: task.contextTokens, contextLimit: task.contextLimit, model: task.model, classification, stage: stageRole(stage, task.agent) === 'qa' ? 'qa' : stage, spec: sections?.spec, comment: sections?.comment, changelog: sections?.changelog });
+  socket.emit('machine:task-finished', { taskId: task.taskId, agent: task.agent, mode: task.mode, handoff: Boolean(task.comment), exitCode, summary, touchedFiles, stopped, tokens: task.tokens, contextTokens: task.contextTokens, contextLimit: task.contextLimit, model: task.model, classification, stage: stageRole(stage, task.agent) === 'qa' ? 'qa' : stage, spec: sections?.spec, comment: sections?.comment, changelog: sections?.changelog, qaWithoutEnvironment: task.qaWithoutEnvironment || undefined });
   notify(`${agentLabels[task.agent]} ${exitCode === 0 ? 'terminou' : 'parou'}: ${task.title}`);
   agents[task.agent] = { state: 'idle', action: exitCode === 0 ? 'Concluído' : `Parou com código ${exitCode}`, model: task.model };
   broadcast();
@@ -1223,7 +1242,9 @@ function changeModel(req, res) {
 // Com session (Chat Lateral) o Antigravity e o Claude Code respondem em JSON, que traz o id da conversa para retomar na próxima mensagem
 // Claude Code e Codex rodam em sandbox: só escrevem na pasta do projeto e no .git dele. O OpenCode nega acesso a pastas de fora
 // O modelo da tarefa (cargo da etapa, senão o fixado na máquina, senão o do Micro-Router) vale mais que o do agente
-function agentCommand(agent, prompt, cwd, stream = false, session, taskModel) {
+// readOnly (spec, revisão, QA e comentário de quem não implementa): o harness sobe sem escrita onde ele tem esse modo.
+// O Antigravity, o Gemini e o Aider não têm um modo testado, e para eles vale a checagem do runner no fim da execução
+function agentCommand(agent, prompt, cwd, stream = false, session, taskModel, readOnly = false) {
   const chosen = taskModel || config.models?.[agent];
   const model = chosen ? ['--model', chosen] : [];
   const gitDir = projectGitDir(cwd);
@@ -1233,6 +1254,7 @@ function agentCommand(agent, prompt, cwd, stream = false, session, taskModel) {
     return ['agy', ['--dangerously-skip-permissions', ...resume, ...json, ...model, '-p', prompt]];
   }
   if (agent === 'opencode') return ['opencode', ['run', '--auto', ...model, prompt]];
+  if (agent === 'codex' && readOnly) return ['codex', ['exec', '--sandbox', 'read-only', ...model, prompt]];
   if (agent === 'codex') {
     const addDir = gitDir ? ['--add-dir', gitDir] : [];
     return ['codex', ['exec', '--sandbox', 'workspace-write', '-c', 'sandbox_workspace_write.network_access=true', ...addDir, ...model, prompt]];
@@ -1244,8 +1266,9 @@ function agentCommand(agent, prompt, cwd, stream = false, session, taskModel) {
   const addDir = gitDir ? ['--add-dir', gitDir] : [];
   const commands = claudeSandboxReady() ? hostCommands : [...hostCommands, ...devCommands];
   const allowed = ['mcp__deskreport', 'WebFetch', 'WebSearch', `Read(${absoluteRule(attachmentsDir)}/**)`, ...commands.map((command) => `Bash(${command})`)].join(',');
-  // Push e deploy só quando uma pessoa pedir
-  const denied = ['Bash(git push *)', 'Bash(vercel *)'].join(',');
+  // Push e deploy só quando uma pessoa pedir. Em readOnly também sem editar arquivo, commitar ou desfazer
+  const readOnlyDenied = ['Edit', 'Write', 'MultiEdit', 'NotebookEdit', 'Bash(git commit *)', 'Bash(git checkout *)', 'Bash(git restore *)', 'Bash(git reset *)', 'Bash(git stash *)', 'Bash(git clean *)', 'Bash(rm *)'];
+  const denied = ['Bash(git push *)', 'Bash(vercel *)', ...(readOnly ? readOnlyDenied : [])].join(',');
   return ['claude', ['--permission-mode', 'acceptEdits', '--allowedTools', allowed, '--disallowedTools', denied, '--settings', claudeSandbox, ...addDir, ...resume, ...output, ...model, '-p', prompt]];
 }
 
@@ -1400,7 +1423,10 @@ async function runTask(task) {
   const denials = [];
 
   const stream = task.agent === 'claude';
-  const [bin, child] = startAgent(task.agent, buildPrompt(task, cwd), cwd, { DESKREPORT_TASK_ID: task.taskId, DESKREPORT_MODEL: task.model }, stream, undefined, task.model);
+  const readOnly = readOnlyStage(task, stage);
+  // QA sem ambiente no ar valida só o código, e o comentário diz isso em vez de "QA concluído"
+  task.qaWithoutEnvironment = stage === 'qa' && (!task.environment || (task.environment.kind === 'local' && task.environmentState !== 'up'));
+  const [bin, child] = startAgent(task.agent, buildPrompt(task, cwd), cwd, { DESKREPORT_TASK_ID: task.taskId, DESKREPORT_MODEL: task.model }, stream, undefined, task.model, readOnly);
 
   let output = '';
   let stopReason = '';
@@ -1542,14 +1568,23 @@ async function runTask(task) {
     }
     if (denials.length > 0) facts.push(`Bloqueado pelas permissões do DeskReport:\n${denials.filter((d, i) => denials.indexOf(d) === i).map((d) => `- ${d}`).join('\n')}`);
     if (stage === 'implement' && stageRole(stage, task.agent) !== 'qa' && code === 0 && !stoppedByUser && touchedFiles.length === 0) facts.push('Aviso do DeskReport: nenhum arquivo foi alterado nesta execução.');
+    // Etapa somente leitura que alterou arquivo não segue a esteira. O runner não desfaz sozinho: no mesmo intervalo uma pessoa pode ter editado o arquivo
+    const readOnlyBroken = readOnly && touchedFiles.length > 0;
+    if (readOnlyBroken) facts.push(`Aviso do DeskReport: esta etapa não pode alterar arquivos e alterou:\n${touchedFiles.map((file) => `- ${file}`).join('\n')}\nConfira e desfaça antes de seguir. A esteira parou aqui.`);
     const summary = cleanSummary([stopReason, output.trim()].filter(Boolean).join('\n\n'));
     const sections = stoppedByUser ? null : parseSections(summary);
     const report = [sections ? fitSummary(sections.comment || '', true) : fitSummary(summary, stream), ...facts].filter(Boolean).join('\n\n');
     // Spec pronta: a complexidade sai daqui, antes da API acionar a próxima etapa
     const classification = stage === 'spec' && code === 0 && !stoppedByUser ? await classifySpec({ title: task.title, description: task.description, spec: sections?.spec || summary }) : null;
     // Parada pelo usuário nunca conta como sucesso, mesmo se o agente sair com 0
-    finish(task, stoppedByUser ? 1 : code ?? 1, report, touchedFiles, stoppedByUser, classification, sections, stage);
+    finish(task, stoppedByUser || readOnlyBroken ? 1 : code ?? 1, report, touchedFiles, stoppedByUser, classification, sections, stage);
   });
+}
+
+// Quem não implementa nunca escreve na pasta, e o QA nunca escreve, mesmo quando o agente também tem cargo de Engenharia
+function readOnlyStage(task, stage) {
+  if (stage === 'qa' || stage === 'review' || stage === 'spec') return true;
+  return stage === 'comment' && !canEdit(task.agent);
 }
 
 const ENV_READY_MS = 120_000;
@@ -1742,11 +1777,11 @@ function agentEnv() {
   return env;
 }
 
-function startAgent(agent, prompt, cwd, env = {}, stream = false, session, taskModel) {
-  const [bin, args] = agentCommand(agent, prompt, cwd, stream, session, taskModel);
+function startAgent(agent, prompt, cwd, env = {}, stream = false, session, taskModel, readOnly = false) {
+  const [bin, args] = agentCommand(agent, prompt, cwd, stream, session, taskModel, readOnly);
   const windows = process.platform === 'win32';
   const opencodeConfig = {
-    permission: { external_directory: 'deny' },
+    permission: readOnly ? { external_directory: 'deny', edit: 'deny' } : { external_directory: 'deny' },
     mcp: { deskreport: mcpEntry('opencode') },
   };
 
@@ -2856,6 +2891,7 @@ const widgetHtml = `<!doctype html>
     <span id="status" class="status"><i></i><span id="conn">Desconectado</span></span>
     <button id="gear" class="gear" aria-label="Configurações" hidden>⚙</button>
   </header>
+  <div id="update" class="alert" hidden>Há uma versão nova do DeskReport. Rode o instalador de novo para atualizar.</div>
 
   <nav id="tabs" hidden>
     <button data-tab="agents" class="active">Agentes</button>
@@ -3578,6 +3614,7 @@ const widgetHtml = `<!doctype html>
     const yagniEl = document.getElementById('yagniToggle');
     if (yagniEl) yagniEl.checked = Boolean(data.yagniMode);
     document.getElementById('quit').disabled = data.busy;
+    document.getElementById('update').hidden = !data.updateAvailable;
     connect.disabled = data.authPending;
     connect.textContent = data.authPending ? 'Aguardando login no navegador...' : 'Conectar com DeskReport';
     renderAgents();
@@ -3854,6 +3891,8 @@ if (process.argv.includes('--background') && !process.env.DESKREPORT_BACKGROUND)
     process.exit(0);
   }
   setInterval(releaseRenewedQuotas, 60_000);
+  checkUpdate();
+  setInterval(checkUpdate, 3_600_000);
   loadModelCatalog();
 
   const terminalSetup = command === 'setup' || command === 'login';

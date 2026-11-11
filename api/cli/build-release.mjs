@@ -1,6 +1,7 @@
 // Gera os pacotes do deskreport-client para Linux, macOS e Windows
 // Saída: web/public/downloads/deskreport-linux.tar.gz, deskreport-macos.tar.gz e deskreport-windows-x64.tar.gz
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -44,6 +45,8 @@ exec "$NODE" "$DIR/deskreport-client.mjs" "$@"
 const windowsLauncher = '@echo off\r\nnode "%~dp0deskreport-client.mjs" %*\r\n';
 
 mkdirSync(outDir, { recursive: true });
+// O runner instalado compara com o próprio hash e avisa no widget quando estiver desatualizado
+writeFileSync(path.join(outDir, 'client-version.txt'), createHash('sha256').update(readFileSync(path.join(cliDir, 'deskreport-client.mjs'))).digest('hex').slice(0, 16) + '\n');
 buildPackage('deskreport-linux.tar.gz', 'install.sh', { deskreport: unixLauncher });
 buildPackage('deskreport-macos.tar.gz', 'install.sh', { deskreport: unixLauncher });
 buildPackage('deskreport-windows-x64.tar.gz', 'install.ps1', { 'deskreport.cmd': windowsLauncher });

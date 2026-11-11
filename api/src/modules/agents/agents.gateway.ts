@@ -268,8 +268,8 @@ export class AgentsGateway implements OnGatewayConnection {
         if (result) return;
       }
     }
-    // QA aprovado: o projeto pode pedir o commit ao DevOps. Sem a opção a esteira para e espera a pessoa
-    if (data.stage === 'qa' && approved(text) && (await this.agentsService.autoCommitAfterQa(organizationId, taskId))) {
+    // QA aprovado no navegador: o projeto pode pedir o commit ao DevOps. Sem a opção, ou com QA só no código, a esteira para e espera a pessoa
+    if (data.stage === 'qa' && !data.qaWithoutEnvironment && approved(text) && (await this.agentsService.autoCommitAfterQa(organizationId, taskId))) {
       const devops = await this.agentsService.agentForRole(organizationId, 'devops');
       if (devops && this.countAutoRun(taskId)) {
         const result = await this.dispatchTask(organizationId, taskId, { agent: devops, comment: text, commit: true, auto: true }).catch(() => null);
