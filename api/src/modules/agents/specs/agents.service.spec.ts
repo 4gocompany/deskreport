@@ -1,8 +1,10 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { createHash } from 'crypto';
-import { AgentsService } from '../agents.service';
+import { AgentsService, normalizeGitRemote } from '../agents.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { mockPrismaService } from '../../../test-utils/prisma-service.mock';
+
+jest.mock('../../../auth/auth', () => ({ auth: {} }));
 
 describe('AgentsService', () => {
   let service: AgentsService;
@@ -108,7 +110,7 @@ describe('AgentsService', () => {
 
   it('sem agent e sem pasta usa o agente responsável e a pasta do projeto da tarefa', async () => {
     prisma.task.findFirst.mockResolvedValue({ id: 't-1', project: 'p-1', status: 'todo', assignees: [{ id: 'u-1' }, { id: 'agent-user-opencode' }], comments: [] });
-    prisma.project.findFirst.mockResolvedValue({ folder: 'deskreport.com.br' });
+    prisma.project.findFirst.mockResolvedValue({ folder: 'deskreport.com.br', locations: [] });
     prisma.task.update.mockResolvedValue({ id: 't-1' });
 
     const result = await service.startDispatch('t-1', 'org-1', {});
@@ -122,19 +124,71 @@ describe('AgentsService', () => {
     prisma.task.findFirst.mockResolvedValue({ id: 't-1', project: 'p-1', assignees: [{ id: 'u-1' }], comments: [] });
     await expect(service.startDispatch('t-1', 'org-1', {})).rejects.toThrow('Atribua um agente');
 
-    prisma.project.findFirst.mockResolvedValue({ folder: null });
+    prisma.project.findFirst.mockResolvedValue({ folder: null, locations: [] });
     await expect(service.startDispatch('t-1', 'org-1', { agent: 'claude' })).rejects.toThrow('Sincronize as pastas');
     expect(prisma.task.update).not.toHaveBeenCalled();
   });
 
   it('sincroniza pastas como projetos da organização', async () => {
-    prisma.project.findFirst.mockResolvedValueOnce(null).mockResolvedValueOnce({ id: 'p-2', folder: null });
+    prisma.project.findFirst.mockResolvedValueOnce(null).mockResolvedValueOnce(null).mockResolvedValueOnce({ id: 'p-2', folder: null, defaultMachineId: 'm-9' });
+    prisma.project.create.mockResolvedValue({ id: 'p-1', folder: 'api', defaultMachineId: null });
 
-    await service.syncProjects('org-1', ['api', 'site']);
+    await service.syncProjects('org-1', 'm-1', ['api', 'site']);
 
-    expect(prisma.project.create).toHaveBeenCalledWith({ data: { organizationId: 'org-1', name: 'api', folder: 'api' } });
+    expect(prisma.project.create.mock.calls[0][0].data).toEqual({ organizationId: 'org-1', name: 'api', folder: 'api', remote: null });
     expect(prisma.project.update).toHaveBeenCalledWith({ where: { id: 'p-2' }, data: { folder: 'site' } });
-    await expect(service.syncProjects('org-1', ['../etc'])).rejects.toThrow();
+    expect(prisma.project.update).toHaveBeenCalledWith({ where: { id: 'p-1' }, data: { defaultMachineId: 'm-1' } });
+    expect(prisma.projectLocation.upsert.mock.calls[0][0].where).toEqual({ projectId_machineId: { projectId: 'p-1', machineId: 'm-1' } });
+    await expect(service.syncProjects('org-1', 'm-1', ['../etc'])).rejects.toThrow();
+  });
+
+  it('normaliza o remote git de qualquer formato de origin', () => {
+    expect(normalizeGitRemote('git@GitHub.com:4goCompany/deskreport.git')).toBe('github.com/4gocompany/deskreport');
+    expect(normalizeGitRemote('https://user:pass@github.com/4gocompany/deskreport.git/')).toBe('github.com/4gocompany/deskreport');
+    expect(normalizeGitRemote('ssh://git@host.com:22/org/repo')).toBe('host.com/22/org/repo');
+    expect(normalizeGitRemote('github.com/a/../b')).toBeNull();
+    expect(normalizeGitRemote('repo')).toBeNull();
+    expect(normalizeGitRemote('')).toBeNull();
+  });
+
+  it('guarda as pastas só da máquina autenticada e vincula o projeto pelo remote', async () => {
+    prisma.agentMachine.updateMany.mockResolvedValue({ count: 1 });
+    prisma.project.findFirst.mockResolvedValue({ id: 'p-1', folder: 'web', defaultMachineId: null });
+
+    await service.saveMachineFolders('org-1', 'm-1', [{ name: 'web', path: '/home/dev/web', remote: 'git@github.com:Org/Web.git' }, { name: '../x', path: '/x' }]);
+
+    expect(prisma.agentMachine.updateMany).toHaveBeenCalledWith({ where: { id: 'm-1', organizationId: 'org-1' }, data: { folders: [{ name: 'web', path: '/home/dev/web', remote: 'github.com/org/web' }] } });
+    expect(prisma.project.findFirst.mock.calls[0][0].where).toEqual({ organizationId: 'org-1', remote: 'github.com/org/web' });
+    expect(prisma.projectLocation.upsert.mock.calls[0][0].create).toEqual({ projectId: 'p-1', machineId: 'm-1', folder: 'web', path: '/home/dev/web', remote: 'github.com/org/web' });
+  });
+
+  it('despacha na máquina padrão do projeto com o caminho dela e barra máquina offline', async () => {
+    prisma.task.findFirst.mockResolvedValue({ id: 't-1', project: 'p-1', status: 'todo', assignees: [], comments: [] });
+    prisma.project.findFirst.mockResolvedValue({ folder: 'web', defaultMachineId: 'm-2', locations: [{ machineId: 'm-2', folder: 'web', path: '/mac/web' }] });
+    prisma.agentMachine.findMany.mockResolvedValue([{ id: 'm-2', name: 'Mac' }]);
+    prisma.task.update.mockResolvedValue({ id: 't-1' });
+
+    const result = await service.startDispatch('t-1', 'org-1', { agent: 'claude' }, ['m-2']);
+    expect(result.machineId).toBe('m-2');
+    expect(result.projectPath).toBe('/mac/web');
+    expect(prisma.agentMachine.findMany.mock.calls[0][0].where).toEqual({ id: { in: ['m-2', 'm-2'] }, organizationId: 'org-1' });
+
+    await expect(service.startDispatch('t-1', 'org-1', { agent: 'claude' }, [])).rejects.toThrow('A máquina Mac está offline');
+    const auto = await service.startDispatch('t-1', 'org-1', { agent: 'claude', auto: true }, []);
+    expect(auto.machineOffline).toBe(true);
+    expect(prisma.task.update.mock.calls[1][0].data.status).toBe('todo');
+    expect(prisma.taskComment.create.mock.calls[0][0].data.content).toContain('a máquina Mac está offline');
+  });
+
+  it('tarefa presa a uma máquina removida cai para a máquina padrão do projeto', async () => {
+    prisma.task.findFirst.mockResolvedValue({ id: 't-1', project: 'p-1', status: 'todo', machineId: 'm-velha', assignees: [], comments: [] });
+    prisma.project.findFirst.mockResolvedValue({ folder: 'web', defaultMachineId: 'm-2', locations: [{ machineId: 'm-2', folder: 'web', path: '/mac/web' }] });
+    prisma.agentMachine.findMany.mockResolvedValue([{ id: 'm-2', name: 'Mac' }]);
+    prisma.task.update.mockResolvedValue({ id: 't-1' });
+
+    const result = await service.startDispatch('t-1', 'org-1', { agent: 'claude' }, ['m-2']);
+    expect(result.machineId).toBe('m-2');
+    await expect(service.startDispatch('t-1', 'org-1', { agent: 'claude', machineId: 'm-outra-org' }, ['m-2'])).rejects.toThrow('Máquina não encontrada');
   });
 
   it('move a task para revisão do Antigravity e comenta como o agente', async () => {

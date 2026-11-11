@@ -81,6 +81,9 @@ export type Project = {
   name: string;
   teams?: { teamId: string; team?: Team }[];
   completion_percentage?: number;
+  remote?: string | null;
+  defaultMachineId?: string | null;
+  locations?: { machineId: string; path: string; machine?: { id: string; name: string } }[];
 };
 export type Team = {
   id: string;
@@ -138,6 +141,9 @@ export const useTenantStore = create<TenantStore>()((set, get) => ({
               name: p.name,
               teams: p.teams,
               completion_percentage: p.completion_percentage,
+              remote: p.remote,
+              defaultMachineId: p.defaultMachineId,
+              locations: p.locations,
             })),
           ],
         });

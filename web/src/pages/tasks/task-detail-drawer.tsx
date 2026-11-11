@@ -25,6 +25,7 @@ import { RichEditor } from '../../components/ui/rich-editor';
 import { RichText, toEditorHtml } from '../../components/ui/rich-text';
 import { Button, Dialog } from '../../components/ui';
 import { useTenantStore } from '../../store';
+import { useMachines } from '../../hooks/useMachines';
 import { useTaskStore } from './use-task-store';
 import { agentProfile, useAgentsStore, withAgentProfile } from './use-agents';
 import { useParams } from 'react-router-dom';
@@ -202,6 +203,7 @@ export function TaskDetailDrawer({
   const enabledAgents = useAgentsStore((state) => state.agents);
   // Apelidos e avatares chegam pelo socket e redesenham comentários e responsáveis
   useAgentsStore((state) => state.profiles);
+  const [machineId, setMachineId] = useState('');
   const [isDispatching, setIsDispatching] = useState(false);
   const [dispatchError, setDispatchError] = useState('');
   const [isStopping, setIsStopping] = useState(false);
@@ -271,7 +273,14 @@ export function TaskDetailDrawer({
   useEffect(() => {
     setDispatchError('');
     setIsTerminalOpen(false);
+    setMachineId('');
   }, [task?.id]);
+
+  // Máquinas onde o projeto existe. Sem escolha, a tarefa roda na máquina padrão do projeto
+  const machines = useMachines(company_id);
+  const rawProject = projects.find((p) => p.id === displayTask?.project || p.name === displayTask?.project);
+  const projectMachines = machines.filter((machine) => rawProject?.locations?.some((item) => item.machineId === machine.id));
+  const targetMachine = machines.find((machine) => machine.id === (machineId || rawProject?.defaultMachineId || projectMachines[0]?.id));
 
   // Some quando a máquina avisa que o agente parou
   useEffect(() => {
@@ -285,7 +294,7 @@ export function TaskDetailDrawer({
     if (!task) return;
     setIsDispatching(true);
     setDispatchError('');
-    const error = await dispatchTask(task.id, agent);
+    const error = await dispatchTask(task.id, agent, machineId);
     if (error) {
       setDispatchError(error);
     } else if (displayTask && agent !== 'antigravity') {
@@ -1089,6 +1098,27 @@ export function TaskDetailDrawer({
                         <Square size={12} className='mr-1.5' />
                         {isStopping ? 'Parando...' : 'Parar Execução'}
                       </Button>
+                    )}
+
+                    {!taskAgent && projectMachines.length > 0 && (
+                      <select
+                        value={machineId}
+                        onChange={(e) => setMachineId(e.target.value)}
+                        className='w-full bg-zinc-50 dark:bg-zinc-800/50 border border-zinc-200 dark:border-zinc-700 rounded-lg px-3 py-2 text-xs outline-none focus:border-blue-500 font-medium'
+                      >
+                        <option value=''>Máquina padrão do projeto</option>
+                        {projectMachines.map((machine) => (
+                          <option key={machine.id} value={machine.id}>
+                            {machine.name} ({machine.online ? 'Online' : 'Offline'}){machine.id === rawProject?.defaultMachineId ? ' - padrão' : ''}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+
+                    {!taskAgent && targetMachine && !targetMachine.online && (
+                      <p className='text-xs text-amber-600 dark:text-amber-400'>
+                        Máquina {targetMachine.name} está offline. A tarefa aguarda conexão ou troque a máquina acima.
+                      </p>
                     )}
 
                     {!taskAgent && assignedAgents.map((agent) => (

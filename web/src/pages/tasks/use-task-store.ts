@@ -22,7 +22,7 @@ interface TaskStore {
   deleteTask: (id: string) => Promise<void>;
   fetchTasks: () => Promise<void>;
   addComment: (taskId: string, content: string, agent?: string) => Promise<void>;
-  dispatchTask: (id: string, agent: string) => Promise<string | null>;
+  dispatchTask: (id: string, agent: string, machineId?: string) => Promise<string | null>;
   stopTask: (id: string) => Promise<string | null>;
   fetchTerminal: (id: string) => Promise<string>;
   fetchTaskDiff: (id: string) => Promise<string>;
@@ -84,10 +84,10 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
       console.error('Failed to update task:', (error as Error).message || error);
     }
   },
-  dispatchTask: async (id, agent) => {
+  dispatchTask: async (id, agent, machineId) => {
     const { error } = await authClient.$fetch(`${API_URL}/${id}/dispatch`, {
       method: 'POST',
-      body: { agent },
+      body: { agent, machineId: machineId || undefined },
       headers: { 'x-organization-id': getOrgId() },
     });
     if (error) return error.message || 'Não foi possível rodar o agente';

@@ -65,6 +65,19 @@ export class AgentsGateway implements OnGatewayConnection {
     await this.syncAgents(client.data.organizationId);
   }
 
+  // A máquina vem do token autenticado, nunca do payload
+  @SubscribeMessage('machine:folders')
+  async machineFolders(@ConnectedSocket() client: Socket, @MessageBody() data: any) {
+    if (client.data?.kind !== 'machine') return;
+
+    await this.agentsService.saveMachineFolders(client.data.organizationId, client.data.machineId, data?.folders);
+  }
+
+  async onlineMachineIds(organizationId: string): Promise<string[]> {
+    const sockets = await this.server.in(machineRoom(organizationId)).fetchSockets();
+    return sockets.map((socket) => socket.data?.machineId).filter((id) => typeof id === 'string');
+  }
+
   // Cada máquina diz quais agentes usa, a organização fica com a soma das máquinas conectadas
   async syncAgents(organizationId: string) {
     const sockets = await this.server.in(machineRoom(organizationId)).fetchSockets();
@@ -243,15 +256,13 @@ export class AgentsGateway implements OnGatewayConnection {
 
   // Atribui o agente na tarefa e manda o deskreport-client abrir o agente com a spec
   async dispatchTask(organizationId: string, taskId: string, data: any) {
-    if (!(await this.hasMachine(organizationId))) {
-      throw new BadRequestException('Nenhuma máquina conectada. Suba o deskreport-client.');
-    }
-
-    const { task, ...job } = await this.agentsService.startDispatch(taskId, organizationId, data);
+    const { task, machineName, ...job } = await this.agentsService.startDispatch(taskId, organizationId, data, await this.onlineMachineIds(organizationId));
     // Acionamento por uma pessoa reinicia o limite da esteira automática
     if (!data?.auto) delete this.autoRuns[task.id];
-    if (job.mode === 'task') this.agentsService.clearOutput(organizationId, task.id);
     this.emitTask(organizationId, 'task:updated', task);
+    // Máquina alvo offline: nunca cai em outra máquina, o agente só fica atribuído
+    if (job.machineOffline) return { ...job, task };
+    if (job.mode === 'task') this.agentsService.clearOutput(organizationId, task.id);
     this.server.to(machineRoom(organizationId)).emit('agent:dispatch', job);
     return { ...job, task };
   }

@@ -14,8 +14,10 @@ export class AgentsController {
 
   @Get('agents/machines')
   async list(@ActiveOrg() orgId: string) {
+    const online = await this.agentsGateway.onlineMachineIds(orgId);
+    const machines = await this.agentsService.listMachines(orgId);
     return {
-      machines: await this.agentsService.listMachines(orgId),
+      machines: machines.map((machine) => ({ ...machine, online: online.includes(machine.id) })),
       agents: await this.agentsService.statusList(orgId),
     };
   }
@@ -113,8 +115,11 @@ export class AgentsController {
   @AllowAnonymous()
   @Post('agents/mcp/projects/sync')
   async mcpSyncProjects(@Headers('authorization') authorization: string, @Body() data: any) {
-    const orgId = await this.machineOrg(authorization);
-    return this.agentsService.syncProjects(orgId, data?.folders);
+    const token = authorization?.replace(/^Bearer\s+/i, '');
+    const machine = await this.agentsService.findMachineByToken(token);
+    if (!machine) throw new UnauthorizedException('Chave da máquina inválida');
+    await this.agentsService.saveMachineFolders(machine.organizationId, machine.machineId, data?.folders);
+    return this.agentsService.syncProjects(machine.organizationId, machine.machineId, data?.folders);
   }
 
   @AllowAnonymous()

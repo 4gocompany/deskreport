@@ -292,11 +292,7 @@ function connectSocket() {
     console.log(`Conectado em ${config.apiUrl}`);
     socket.emit('machine:roles-updated', { roles: config.agentRoles });
     socket.emit('machine:profiles-updated', { profiles: config.agentProfiles });
-    socket.emit('machine:folders', {
-      folders: workspaceFolders(),
-      machineName: os.hostname(),
-      workspaceRoot: workspaceRoot || '',
-    });
+    sendFolders();
     for (const agent of enabledAgents) {
       sendTelemetry({ agent, state: running[agent] ? 'working' : 'idle', action: running[agent] ? `Trabalhando: ${running[agent].title}` : 'Disponível' });
     }
@@ -374,7 +370,7 @@ function handleLocal(req, res) {
 
   if (route === 'GET /fs/dirs') return listDirs(url.searchParams.get('path'), res);
   if (route === 'POST /config/workspace') return changeWorkspace(req, res);
-  if (route === 'GET /projects/folders') return sendJson(res, 200, { folders: workspaceFolders() });
+  if (route === 'GET /projects/folders') return sendJson(res, 200, { folders: workspaceFolders().map((folder) => folder.name) });
   if (route === 'POST /projects/sync') return syncProjects(res);
   if (route === 'POST /config/agents') return changeAgents(req, res);
   if (route === 'POST /config/models') return changeModel(req, res);
@@ -469,14 +465,46 @@ function visibleDirs(dir) {
     .sort((a, b) => a.localeCompare(b));
 }
 
-// Pastas da raiz do Workspace que podem virar projeto (o nome é o que a API aceita como pasta)
-function workspaceFolders() {
-  if (!workspaceRoot) return [];
+function sendFolders() {
+  if (socket?.connected) socket.emit('machine:folders', { folders: workspaceFolders() });
+}
+
+// Mesma regra da API: qualquer URL de origin vira host/dono/repo em minúsculas
+function normalizeGitRemote(raw) {
+  const value = String(raw || '')
+    .trim()
+    .replace(/^(https?|ssh|git):\/\//i, '')
+    .replace(/^[^/@]+@/, '')
+    .replace(/^([^/:]+):/, '$1/')
+    .replace(/\/+$/, '')
+    .replace(/\.git$/i, '')
+    .replace(/\/+$/, '')
+    .toLowerCase();
+  return /^[\w.-]+\/[^\s]+$/.test(value) && !value.includes('..') ? value : null;
+}
+
+function gitRemote(dir) {
   try {
-    return visibleDirs(workspaceRoot).filter((name) => /^[\w.-]+$/.test(name));
+    return normalizeGitRemote(execFileSync('git', ['remote', 'get-url', 'origin'], { cwd: dir, encoding: 'utf8', timeout: 3000, stdio: ['ignore', 'pipe', 'ignore'] }));
   } catch {
-    return [];
+    return null;
   }
+}
+
+// Subpastas do Workspace e das pastas extras que podem virar projeto, com o caminho real e o repositório git
+function workspaceFolders() {
+  const folders = [];
+  for (const base of [workspaceRoot, ...(config.extraWorkspaceRoots || [])]) {
+    if (!base) continue;
+    try {
+      const baseDir = realpathSync(base);
+      for (const name of visibleDirs(baseDir).filter((item) => /^[\w.-]+$/.test(item))) {
+        const dir = path.join(baseDir, name);
+        folders.push({ name, path: dir, remote: gitRemote(dir) });
+      }
+    } catch {}
+  }
+  return folders;
 }
 
 // Cria ou atualiza no DeskReport um projeto para cada pasta do Workspace
@@ -488,7 +516,7 @@ async function syncProjects(res) {
   try {
     await mcpApi('POST', '/agents/mcp/projects/sync', { folders, workspace });
     console.log(`${folders.length} pastas de ${workspace} sincronizadas como projetos`);
-    sendJson(res, 200, { folders, workspace });
+    sendJson(res, 200, { folders: folders.map((folder) => folder.name), workspace });
   } catch (error) {
     sendJson(res, 400, { error: error.message });
   }
@@ -510,6 +538,7 @@ function changeWorkspace(req, res) {
     saveConfig({ workspaceRoot: root });
     workspaceRoot = root;
     console.log(`Workspace trocado para ${root}`);
+    sendFolders();
     sendJson(res, 200, { workspaceRoot: root });
     broadcast();
   });
@@ -1095,7 +1124,7 @@ function enqueueTask(task) {
   // Outra máquina da organização pode ter esse agente, aqui ele fica de fora
   if (!enabledAgents.includes(task.agent)) return;
   // Se a tarefa destina-se a uma máquina específica e não é esta, ignora
-  if (task.machineId && config.machineId && task.machineId !== config.machineId) return;
+  if (task.machineId && task.machineId !== config.machineId) return;
 
   const folder = task.projectPath || task.project;
   // Se a tarefa pertence a um projeto e a pasta não existe neste workspace,
@@ -1316,6 +1345,24 @@ function projectDir(folder) {
   // A raiz do workspace só vale pelo nome dela. "root", "raiz" ou vazio casavam com a raiz de qualquer máquina, e a tarefa rodava em todas
   if (trimmed === wsName || trimmed === `${wsName} / raiz` || trimmed === `${wsName} / todos`) return root;
   if (!trimmed) return '';
+
+  // Caminho registrado pela API para esta máquina: só vale se for o Workspace ou subpasta direta dele ou das pastas extras
+  if (path.isAbsolute(trimmed)) {
+    let dir = '';
+    try {
+      dir = realpathSync(trimmed);
+      if (!statSync(dir).isDirectory()) return '';
+    } catch {
+      return '';
+    }
+    for (const base of [workspaceRoot, ...(config.extraWorkspaceRoots || [])]) {
+      if (!base) continue;
+      try {
+        if (path.dirname(dir) === realpathSync(base)) return dir;
+      } catch {}
+    }
+    return '';
+  }
 
   const cleanFolder = trimmed.includes('/') ? trimmed.split('/').pop().trim() : trimmed;
   if (!/^[\w-][\w.-]*$/.test(cleanFolder)) return '';

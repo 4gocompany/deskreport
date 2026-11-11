@@ -8,9 +8,19 @@ import { taskTypes } from './task-types';
 export class TasksService {
     constructor(private prisma: PrismaService) { }
 
+    // Máquina da tarefa sempre da organização. Vazio volta para a máquina padrão do projeto
+    private async checkMachine(organizationId: string, machineId: unknown) {
+        if (!machineId) return null;
+
+        const machine = typeof machineId === 'string' ? await this.prisma.agentMachine.findFirst({ where: { id: machineId, organizationId }, select: { id: true } }) : null;
+        if (!machine) throw new BadRequestException('Máquina não encontrada');
+        return machine.id;
+    }
+
     async create(organizationId: string, data: any) {
         const { assigneeIds, ...rest } = data;
         rest.companyId = organizationId;
+        rest.machineId = await this.checkMachine(organizationId, rest.machineId);
         if (rest.type !== undefined && !taskTypes.includes(rest.type)) throw new BadRequestException('type deve ser um de: ' + taskTypes.join(', '));
         // Sem complexidade escolhida, a tarefa espera a spec pronta para ser classificada
         if (complexities.includes(rest.complexity)) rest.tokenBudget = budgets[rest.complexity];
@@ -69,6 +79,7 @@ export class TasksService {
         if (type !== undefined && !taskTypes.includes(type)) throw new BadRequestException('type deve ser um de: ' + taskTypes.join(', '));
         // Ajuste manual do tier pela pessoa. Valor fora da lista é ignorado
         const complexity = complexities.includes(data.complexity) ? data.complexity : undefined;
+        const machineId = data.machineId === undefined ? undefined : await this.checkMachine(organizationId, data.machineId);
         if (status === 'release' && task.waitingFor) {
             throw new BadRequestException('A tarefa tem uma pergunta de agente aguardando resposta');
         }
@@ -87,6 +98,7 @@ export class TasksService {
                 complexity,
                 tokenBudget: complexity ? budgets[complexity] : undefined,
                 type,
+                machineId,
                 assignees: assigneeIds ? {
                     set: assigneeIds.map((id: string) => ({ id }))
                 } : undefined

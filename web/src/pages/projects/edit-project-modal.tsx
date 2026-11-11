@@ -4,6 +4,7 @@ import { authClient } from '../../lib/auth-client';
 import { useTenantStore } from '../../store';
 import { useTenant } from '../../hooks/useTenant';
 import { apiBase } from '../../api/fetcher';
+import { useMachines } from '../../hooks/useMachines';
 
 interface EditProjectModalProps {
   project: any | null;
@@ -14,7 +15,8 @@ interface EditProjectModalProps {
 export function EditProjectModal({ project, onClose, onSuccess }: EditProjectModalProps) {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
-  const [folder, setFolder] = useState('');
+  const [pickedFolder, setPickedFolder] = useState('');
+  const [defaultMachineId, setDefaultMachineId] = useState('');
   const [status, setStatus] = useState('active');
   const [loading, setLoading] = useState(false);
   const [selectedTeamIds, setSelectedTeamIds] = useState<string[]>([]);
@@ -23,6 +25,7 @@ export function EditProjectModal({ project, onClose, onSuccess }: EditProjectMod
 
   const { fetchProjects, teams, fetchTeams } = useTenantStore();
   const { company_id } = useTenant();
+  const machines = useMachines(company_id);
 
   useEffect(() => {
     if (company_id) {
@@ -34,14 +37,16 @@ export function EditProjectModal({ project, onClose, onSuccess }: EditProjectMod
     if (project) {
       setName(project.name || '');
       setDescription(project.description || '');
-      setFolder(project.folder || '');
+      setPickedFolder('');
+      setDefaultMachineId(project.defaultMachineId || '');
       setStatus(project.status || 'active');
       setSelectedTeamIds(project.teams?.map((t: any) => t.teamId) || []);
       setAutoCommitAfterQa(project.autoCommitAfterQa === true);
       setEnvironments(project.environments || []);
     } else {
       setName('');
-      setFolder('');
+      setPickedFolder('');
+      setDefaultMachineId('');
       setDescription('');
       setStatus('active');
       setSelectedTeamIds([]);
@@ -73,7 +78,17 @@ export function EditProjectModal({ project, onClose, onSuccess }: EditProjectMod
     }
 
     try {
-      const payload = { name, description, folder: folder.trim() || undefined, status, autoCommitAfterQa, teamIds: selectedTeamIds };
+      const [machineId, path] = pickedFolder.split('::');
+      const picked = machines.find((machine) => machine.id === machineId)?.folders?.find((item) => item.path === path);
+      const payload = {
+        name,
+        description,
+        location: picked ? { machineId, folder: picked.name, path: picked.path } : undefined,
+        defaultMachineId: defaultMachineId || undefined,
+        status,
+        autoCommitAfterQa,
+        teamIds: selectedTeamIds,
+      };
 
       let saved: any;
       if (project) {
@@ -93,7 +108,15 @@ export function EditProjectModal({ project, onClose, onSuccess }: EditProjectMod
       if (projectId) {
         await authClient.$fetch(`${apiBase}/projects/${projectId}/environments`, {
           method: 'PUT',
-          body: environments.map(({ name, kind, url, healthUrl, startCommand, qaEnabled }) => ({ name, kind, url, healthUrl, startCommand, qaEnabled })),
+          body: environments.map(({ name, kind, url, healthUrl, startCommand, qaEnabled, machineId }) => ({
+            name,
+            kind,
+            url,
+            healthUrl,
+            startCommand,
+            qaEnabled,
+            machineId,
+          })),
           headers,
         });
       }
@@ -141,14 +164,52 @@ export function EditProjectModal({ project, onClose, onSuccess }: EditProjectMod
 
           <div className='space-y-1.5'>
             <label className='text-[10px] font-black  text-zinc-400'>Pasta</label>
-            <input
-              type='text'
-              value={folder}
-              onChange={(e) => setFolder(e.target.value)}
-              placeholder='Nome da pasta no workspace da máquina (ex: web.agrosync)'
-              className='w-full bg-zinc-50 dark:bg-zinc-800/50 border border-zinc-200 dark:border-zinc-700 rounded-lg px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-medium'
-            />
+            <select
+              value={pickedFolder}
+              onChange={(e) => setPickedFolder(e.target.value)}
+              className='w-full bg-zinc-50 dark:bg-zinc-800/50 border border-zinc-200 dark:border-zinc-700 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-500 transition-all font-medium'
+            >
+              <option value=''>{project?.folder ? `${project.folder} (atual)` : 'Selecione a pasta'}</option>
+              {machines.map((machine) => (
+                <optgroup key={machine.id} label={`${machine.name} (${machine.online ? 'Online' : 'Offline'})`}>
+                  {(machine.folders || []).map((item) => (
+                    <option key={item.path} value={`${machine.id}::${item.path}`}>
+                      {item.remote ? `${item.name} (${item.remote})` : item.name}
+                    </option>
+                  ))}
+                </optgroup>
+              ))}
+            </select>
+            {machines.every((machine) => !machine.folders?.length) && (
+              <div className='text-[10px] text-zinc-400 italic'>Nenhuma pasta enviada ainda. Conecte o deskreport-client da máquina.</div>
+            )}
           </div>
+
+          {project?.locations?.length > 0 && (
+            <div className='space-y-1.5'>
+              <label className='text-[10px] font-black  text-zinc-400'>Máquinas do projeto</label>
+              {project.locations.map((item: any) => {
+                const online = machines.find((machine) => machine.id === item.machineId)?.online;
+                return (
+                  <div key={item.id} className='text-xs text-zinc-600 dark:text-zinc-300'>
+                    <span className='font-semibold'>{item.machine?.name}</span> ({online ? 'Online' : 'Offline'}) {item.path}
+                    {item.remote && <span className='text-zinc-400'> {item.remote}</span>}
+                  </div>
+                );
+              })}
+              <select
+                value={defaultMachineId}
+                onChange={(e) => setDefaultMachineId(e.target.value)}
+                className='w-full bg-zinc-50 dark:bg-zinc-800/50 border border-zinc-200 dark:border-zinc-700 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-500 transition-all font-medium'
+              >
+                {project.locations.map((item: any) => (
+                  <option key={item.machineId} value={item.machineId}>
+                    Máquina padrão: {item.machine?.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
 
           <div className='space-y-1.5'>
             <label className='text-[10px] font-black  text-zinc-400'>Descrição</label>
@@ -212,12 +273,26 @@ export function EditProjectModal({ project, onClose, onSuccess }: EditProjectMod
                 className='w-full bg-zinc-50 dark:bg-zinc-800/50 border border-zinc-200 dark:border-zinc-700 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-500 font-medium'
               />
               {item.kind === 'local' && (
-                <input
-                  value={item.startCommand || ''}
-                  onChange={(e) => changeEnvironment(index, { startCommand: e.target.value })}
-                  placeholder='Script do package.json que sobe o projeto (ex: dev)'
-                  className='w-full bg-zinc-50 dark:bg-zinc-800/50 border border-zinc-200 dark:border-zinc-700 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-500 font-medium'
-                />
+                <div className='flex gap-2'>
+                  <input
+                    value={item.startCommand || ''}
+                    onChange={(e) => changeEnvironment(index, { startCommand: e.target.value })}
+                    placeholder='Script do package.json que sobe o projeto (ex: dev)'
+                    className='flex-1 min-w-0 bg-zinc-50 dark:bg-zinc-800/50 border border-zinc-200 dark:border-zinc-700 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-500 font-medium'
+                  />
+                  <select
+                    value={item.machineId || ''}
+                    onChange={(e) => changeEnvironment(index, { machineId: e.target.value || null })}
+                    className='bg-zinc-50 dark:bg-zinc-800/50 border border-zinc-200 dark:border-zinc-700 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-500 font-medium'
+                  >
+                    <option value=''>Máquina padrão</option>
+                    {machines.map((machine) => (
+                      <option key={machine.id} value={machine.id}>
+                        {machine.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               )}
               <div className='flex items-center justify-between'>
                 <label className='flex items-center gap-2 text-xs text-zinc-600 dark:text-zinc-300'>

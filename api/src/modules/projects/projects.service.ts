@@ -6,6 +6,9 @@ export interface CreateProjectDto {
     name: string;
     description?: string;
     folder?: string;
+    defaultMachineId?: string | null;
+    // Pasta escolhida no seletor: a API confere com as pastas que a máquina enviou
+    location?: { machineId: string; folder: string; path: string };
     startDate?: string | Date;
     endDate?: string | Date;
     status?: string;
@@ -20,7 +23,14 @@ export interface EnvironmentDto {
     healthUrl?: string;
     startCommand?: string;
     qaEnabled?: boolean;
+    machineId?: string | null;
 }
+
+const projectInclude = {
+    teams: { include: { team: true } },
+    environments: { orderBy: { createdAt: 'asc' as const } },
+    locations: { include: { machine: { select: { id: true, name: true, lastSeenAt: true } } } },
+};
 
 const environmentKinds = ['local', 'staging', 'production'];
 const loopbackHosts = ['localhost', '127.0.0.1', '[::1]'];
@@ -37,37 +47,55 @@ function checkUrl(value: unknown, label: string) {
 export class ProjectsService {
     constructor(private prisma: PrismaService) { }
 
-    async create(organizationId: string, { teamIds, ...data }: CreateProjectDto) {
-        checkProjectPath(data.folder);
+    // Máquina sempre da organização: nunca grava vínculo com máquina de outra empresa
+    private async checkMachine(organizationId: string, machineId: unknown) {
+        const machine = typeof machineId === 'string' ? await this.prisma.agentMachine.findFirst({ where: { id: machineId, organizationId }, select: { id: true } }) : null;
+        if (!machine) throw new BadRequestException('Máquina não encontrada');
+    }
+
+    // Só vale pasta que a máquina enviou. O remote vem dela, nunca do painel
+    private async findMachineFolder(organizationId: string, location: CreateProjectDto['location']) {
+        const machine = await this.prisma.agentMachine.findFirst({ where: { id: String(location?.machineId), organizationId }, select: { folders: true } });
+        const folders = Array.isArray(machine?.folders) ? (machine.folders as { name: string; path: string; remote: string | null }[]) : [];
+        const found = folders.find((item) => item.name === location.folder && item.path === location.path);
+        if (!found) throw new BadRequestException('Pasta não encontrada na máquina');
+        return found;
+    }
+
+    async create(organizationId: string, dto: CreateProjectDto) {
+        const { name, description, folder, startDate, endDate, status, autoCommitAfterQa, teamIds, location } = dto;
+        let { defaultMachineId } = dto;
+        checkProjectPath(folder);
+        if (defaultMachineId) await this.checkMachine(organizationId, defaultMachineId);
+
+        const found = location ? await this.findMachineFolder(organizationId, location) : null;
+        if (found) defaultMachineId = defaultMachineId || location.machineId;
+
         return this.prisma.project.create({
             data: {
                 organizationId,
-                ...data,
+                name,
+                description,
+                folder: found?.name || folder,
+                remote: found?.remote,
+                defaultMachineId,
+                startDate,
+                endDate,
+                status,
+                autoCommitAfterQa,
+                locations: found ? { create: { machineId: location.machineId, folder: found.name, path: found.path, remote: found.remote } } : undefined,
                 teams: teamIds ? {
                     create: teamIds.map(teamId => ({ teamId }))
                 } : undefined
             },
-            include: {
-                teams: {
-                    include: {
-                        team: true
-                    }
-                }
-            }
+            include: projectInclude,
         });
     }
 
     async findAll(organizationId: string) {
         const projects = await this.prisma.project.findMany({
             where: { organizationId },
-            include: {
-                teams: {
-                    include: {
-                        team: true
-                    }
-                },
-                environments: { orderBy: { createdAt: 'asc' } }
-            },
+            include: projectInclude,
             orderBy: { createdAt: 'desc' },
         });
 
@@ -98,14 +126,7 @@ export class ProjectsService {
     async findOne(id: string, organizationId: string) {
         return this.prisma.project.findFirst({
             where: { id, organizationId },
-            include: {
-                teams: {
-                    include: {
-                        team: true
-                    }
-                },
-                environments: { orderBy: { createdAt: 'asc' } }
-            }
+            include: projectInclude,
         });
     }
 
@@ -116,6 +137,10 @@ export class ProjectsService {
         }
         if (!Array.isArray(list) || list.length > 10) {
             throw new BadRequestException('Envie até 10 ambientes');
+        }
+
+        for (const item of list) {
+            if (item?.kind === 'local' && item.machineId) await this.checkMachine(organizationId, item.machineId);
         }
 
         const data = list.map((item) => {
@@ -142,6 +167,8 @@ export class ProjectsService {
                 healthUrl,
                 startCommand: startCommand || null,
                 qaEnabled: item.qaEnabled === true,
+                // Ambiente local sem máquina escolhida fica na máquina padrão do projeto
+                machineId: local ? item.machineId || project.defaultMachineId : null,
             };
         });
 
@@ -158,8 +185,16 @@ export class ProjectsService {
             throw new NotFoundException('Project not found');
         }
 
-        const { name, description, folder, startDate, endDate, status, autoCommitAfterQa, teamIds } = data;
+        const { name, description, startDate, endDate, status, autoCommitAfterQa, teamIds, location } = data;
+        let { folder, defaultMachineId } = data;
         checkProjectPath(folder);
+        if (defaultMachineId) await this.checkMachine(organizationId, defaultMachineId);
+
+        const found = location ? await this.findMachineFolder(organizationId, location) : null;
+        if (found) {
+            folder = found.name;
+            defaultMachineId = defaultMachineId || project.defaultMachineId || location.machineId;
+        }
 
         if (teamIds) {
             // Reset teams
@@ -180,8 +215,17 @@ export class ProjectsService {
 
         await this.prisma.project.update({
             where: { id },
-            data: { name, description, folder, startDate, endDate, status, autoCommitAfterQa },
+            data: { name, description, folder, remote: found ? found.remote : undefined, defaultMachineId, startDate, endDate, status, autoCommitAfterQa },
         });
+
+        if (found) {
+            const place = { folder: found.name, path: found.path, remote: found.remote };
+            await this.prisma.projectLocation.upsert({
+                where: { projectId_machineId: { projectId: id, machineId: location.machineId } },
+                create: { projectId: id, machineId: location.machineId, ...place },
+                update: place,
+            });
+        }
 
         return this.findOne(id, organizationId);
     }

@@ -33,6 +33,8 @@ model Task {
   complexity          String    @default("low")
   // Tipo GitFlow: feature, bugfix, hotfix, security, refactor ou documentation. Define a skill injetada no prompt
   type                String    @default("feature")
+  // Máquina escolhida para rodar a tarefa. Sem ela vale a máquina padrão do projeto
+  machineId           String?   @map("machine_id")
 
   team         Team?              @relation(fields: [teamId], references: [id], onDelete: SetNull)
   comments     TaskComment[]
@@ -210,6 +212,10 @@ model Project {
   description       String?
   // Pasta do projeto dentro do Workspace da máquina, onde o agente roda
   folder            String?
+  // Repositório git normalizado (host/dono/repo). Nulo para pasta sem git
+  remote            String?
+  // Máquina onde as tarefas do projeto rodam
+  defaultMachineId  String?   @map("default_machine_id")
   // Depois do QA aprovado, o DevOps commita sozinho (sem push nem deploy)
   autoCommitAfterQa Boolean   @default(false) @map("auto_commit_after_qa")
   status            String    @default("active") // active, archived
@@ -218,11 +224,33 @@ model Project {
   createdAt         DateTime  @default(now()) @map("created_at")
   updatedAt         DateTime  @updatedAt @map("updated_at")
 
-  teams        ProjectTeam[]
-  assignments  ProjectAssignment[]
-  environments ProjectEnvironment[]
+  teams          ProjectTeam[]
+  assignments    ProjectAssignment[]
+  environments   ProjectEnvironment[]
+  locations      ProjectLocation[]
+  defaultMachine AgentMachine?        @relation("project_default_machine", fields: [defaultMachineId], references: [id], onDelete: SetNull)
 
+  @@index([organizationId, remote])
   @@map("projects")
+}
+
+// Onde o projeto existe em cada máquina da organização
+model ProjectLocation {
+  id        String   @id @default(uuid())
+  projectId String   @map("project_id")
+  machineId String   @map("machine_id")
+  folder    String
+  path      String
+  remote    String?
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  project Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  machine AgentMachine @relation(fields: [machineId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, machineId])
+  @@index([machineId])
+  @@map("project_locations")
 }
 
 model ProjectEnvironment {
@@ -234,9 +262,12 @@ model ProjectEnvironment {
   healthUrl    String?  @map("health_url")
   startCommand String?  @map("start_command")
   qaEnabled    Boolean  @default(false) @map("qa_enabled")
+  // Máquina do ambiente local. Staging e production ficam sem
+  machineId    String?  @map("machine_id")
   createdAt    DateTime @default(now()) @map("created_at")
 
-  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  project Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  machine AgentMachine? @relation(fields: [machineId], references: [id], onDelete: Cascade)
 
   @@index([projectId])
   @@map("project_environments")
@@ -306,8 +337,14 @@ model AgentMachine {
   agentRoles     Json?     @map("agent_roles")
   // Apelido, avatar e cor de cada agente nesta máquina. O agente continua sendo a chave canônica
   agentProfiles  Json?     @map("agent_profiles")
+  // Pastas descobertas nos workspaces da máquina [{ name, path, remote }]. Guardadas para o seletor do painel com a máquina desligada
+  folders        Json?
   lastSeenAt     DateTime? @map("last_seen_at")
   createdAt      DateTime  @default(now()) @map("created_at")
+
+  locations       ProjectLocation[]
+  defaultProjects Project[]            @relation("project_default_machine")
+  environments    ProjectEnvironment[]
 
   @@index([organizationId])
   @@map("agent_machines")

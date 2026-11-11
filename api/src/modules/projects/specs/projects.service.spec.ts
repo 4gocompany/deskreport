@@ -3,6 +3,8 @@ import { ProjectsService } from '../projects.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { mockPrismaService } from '../../../test-utils/prisma-service.mock';
 
+jest.mock('../../../auth/auth', () => ({ auth: {} }));
+
 describe('ProjectsService', () => {
   let service: ProjectsService;
   let prisma: any;

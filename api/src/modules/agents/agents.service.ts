@@ -187,9 +187,49 @@ export class AgentsService {
   listMachines(organizationId: string) {
     return this.prisma.agentMachine.findMany({
       where: { organizationId },
-      select: { id: true, name: true, tokenPrefix: true, workspaceRoot: true, agentRoles: true, lastSeenAt: true, createdAt: true },
+      select: { id: true, name: true, tokenPrefix: true, workspaceRoot: true, folders: true, agentRoles: true, lastSeenAt: true, createdAt: true },
       orderBy: { createdAt: 'desc' },
     });
+  }
+
+  // Guarda as pastas da máquina autenticada e vincula os projetos que já existem no mesmo repositório
+  async saveMachineFolders(organizationId: string, machineId: string | undefined, raw: unknown) {
+    if (!machineId) return;
+
+    const folders = cleanFolders(raw);
+    const { count } = await this.prisma.agentMachine.updateMany({ where: { id: machineId, organizationId }, data: { folders } });
+    if (!count) return;
+
+    for (const item of folders) {
+      const project = await this.matchProject(organizationId, item, false);
+      if (project) await this.saveLocation(project, machineId, item);
+    }
+  }
+
+  // Mesmo repositório é o mesmo projeto. Sem remote casa pelo nome da pasta, e com migrate o projeto antigo sem remote ganha o dele
+  private async matchProject(organizationId: string, item: MachineFolder, migrate: boolean) {
+    const select = { id: true, folder: true, remote: true, defaultMachineId: true };
+    const byName = { remote: null, OR: [{ folder: item.name }, { name: { equals: item.name, mode: 'insensitive' as const } }] };
+
+    if (item.remote) {
+      const found = await this.prisma.project.findFirst({ where: { organizationId, remote: item.remote }, select });
+      if (found || !migrate) return found;
+
+      const old = await this.prisma.project.findFirst({ where: { organizationId, ...byName }, select });
+      if (!old) return null;
+      return this.prisma.project.update({ where: { id: old.id }, data: { remote: item.remote }, select });
+    }
+    return this.prisma.project.findFirst({ where: { organizationId, ...byName }, select });
+  }
+
+  private async saveLocation(project: { id: string; defaultMachineId: string | null }, machineId: string, item: MachineFolder) {
+    const data = { folder: item.name, path: item.path, remote: item.remote };
+    await this.prisma.projectLocation.upsert({
+      where: { projectId_machineId: { projectId: project.id, machineId } },
+      create: { projectId: project.id, machineId, ...data },
+      update: data,
+    });
+    if (!project.defaultMachineId) await this.prisma.project.update({ where: { id: project.id }, data: { defaultMachineId: machineId } });
   }
 
   async createMachine(organizationId: string, data: any) {
@@ -411,7 +451,8 @@ export class AgentsService {
 
   // mode comment: o agente foi chamado num comentário e decide se mexe no código ou só responde
   // Sem agent, roda o agente que está nos responsáveis. Sem projectPath, usa a pasta do projeto da tarefa
-  async startDispatch(taskId: string, organizationId: string, data: any) {
+  // onlineMachineIds vem do gateway. Com a máquina alvo fora dele, a pessoa recebe o erro e a esteira só mantém o agente atribuído
+  async startDispatch(taskId: string, organizationId: string, data: any, onlineMachineIds?: string[]) {
     const mode = data?.mode === 'comment' ? 'comment' : 'task';
     checkProjectPath(data?.projectPath);
 
@@ -442,17 +483,42 @@ export class AgentsService {
       throw new BadRequestException('Atribua um agente nos responsáveis da tarefa');
     }
 
-    const projectPath = data?.projectPath || (await this.projectFolder(organizationId, task.project));
+    // Máquina alvo: a pedida agora, a da tarefa, a padrão do projeto ou a primeira onde o projeto existe
+    const project = await this.projectLocations(organizationId, task.project);
+    // A máquina da tarefa ou a padrão pode ter sido removida (a tarefa não tem chave estrangeira): passa para a próxima da ordem
+    const candidates = [data?.machineId, task.machineId, project?.defaultMachineId, project?.locations[0]?.machineId].filter((id) => typeof id === 'string');
+    const machines = await this.prisma.agentMachine.findMany({ where: { id: { in: candidates }, organizationId }, select: { id: true, name: true } });
+    if (data?.machineId && !machines.some((item) => item.id === data.machineId)) throw new BadRequestException('Máquina não encontrada');
+    const machine = candidates.map((id) => machines.find((item) => item.id === id)).find(Boolean) || null;
+
+    const location = project?.locations.find((item) => item.machineId === machine?.id);
+    const projectPath = location?.path || location?.folder || data?.projectPath || project?.folder;
     if (!projectPath) {
       throw new BadRequestException('O projeto da tarefa não tem pasta. Sincronize as pastas no widget do DeskReport');
+    }
+
+    if (!machine && onlineMachineIds && !onlineMachineIds.length) {
+      throw new BadRequestException('Nenhuma máquina conectada. Suba o deskreport-client.');
+    }
+    const machineOffline = !!machine && !!onlineMachineIds && !onlineMachineIds.includes(machine.id);
+    if (machineOffline && !data?.auto) {
+      throw new BadRequestException(`A máquina ${machine.name} está offline. Conecte a máquina ou escolha outra máquina na tarefa.`);
+    }
+    // Na esteira a tarefa espera a máquina. Sem o aviso ela parecia travada, e um aviso basta enquanto ninguém mexe
+    const offlineNote = `Não fui acionado: a máquina ${machine?.name} está offline. Conecte a máquina ou escolha outra na tarefa e acione pelo painel.`;
+    if (machineOffline && agentNames.includes(data?.agent) && !(task.comments[task.comments.length - 1]?.content || '').includes('está offline. Conecte a máquina')) {
+      await this.commentTask(organizationId, task.id, { agent: data.agent, content: offlineNote });
     }
 
     await this.ensureAgentUsers(organizationId, [agent]);
     const updated = await this.prisma.task.update({
       where: { id: task.id },
       data: {
-        status: agent === 'antigravity' || mode === 'comment' ? task.status : 'in-progress',
+        // Máquina offline na esteira automática: o agente fica atribuído e a tarefa não anda
+        status: agent === 'antigravity' || mode === 'comment' || machineOffline ? task.status : 'in-progress',
         assignees: { connect: { id: agentUsers[agent].id } },
+        // A escolha feita agora vale para as próximas etapas da esteira
+        ...(data?.machineId && machine && data.machineId !== task.machineId ? { machineId: machine.id } : {}),
       },
       include: taskInclude,
     });
@@ -472,11 +538,14 @@ export class AgentsService {
       attachments: task.attachments,
       agent,
       projectPath,
+      machineId: machine?.id,
+      machineName: machine?.name,
+      machineOffline: machineOffline || undefined,
       mode,
       // Etapa pedida pela esteira. Hoje só o QA, que o runner não adivinha pelo cargo quando o mesmo agente revisa
       stage: data?.stage === 'qa' ? 'qa' : undefined,
       // Ambiente de QA do projeto. Vem só do cadastro, nunca de texto de tarefa ou comentário
-      environment: data?.stage === 'qa' ? await this.qaEnvironment(organizationId, task.project) : undefined,
+      environment: data?.stage === 'qa' ? await this.qaEnvironment(organizationId, task.project, machine?.id) : undefined,
       // Commit automático depois do QA aprovado: o DevOps commita, sem push nem deploy
       commit: data?.commit === true ? true : undefined,
       // Micro-Router: o client usa o modelo sugerido quando a máquina não fixou um modelo para o agente
@@ -505,22 +574,24 @@ export class AgentsService {
   }
 
   // A tarefa guarda o id do projeto, mas tarefas antigas podem ter o nome
-  private async projectFolder(organizationId: string, project: string) {
-    const found = await this.prisma.project.findFirst({
+  private projectLocations(organizationId: string, project: string) {
+    return this.prisma.project.findFirst({
       where: { organizationId, OR: [{ id: project }, { name: { equals: project, mode: 'insensitive' } }] },
-      select: { folder: true },
+      select: { folder: true, defaultMachineId: true, locations: { select: { machineId: true, folder: true, path: true }, orderBy: { createdAt: 'asc' } } },
     });
-    return found?.folder || undefined;
   }
 
   // Ambientes liberados para o QA: local primeiro, depois staging, e produção só se o projeto marcou
-  async qaEnvironment(organizationId: string, project: string) {
+  // O ambiente local vale só na máquina dele (ou em qualquer uma quando não tem máquina)
+  async qaEnvironment(organizationId: string, project: string, machineId?: string) {
     const found = await this.prisma.project.findFirst({
       where: { organizationId, OR: [{ id: project }, { name: { equals: project, mode: 'insensitive' } }] },
-      select: { environments: { where: { qaEnabled: true }, select: { name: true, kind: true, url: true, healthUrl: true, startCommand: true } } },
+      select: { environments: { where: { qaEnabled: true }, select: { name: true, kind: true, url: true, healthUrl: true, startCommand: true, machineId: true } } },
     });
     const order = ['local', 'staging', 'production'];
-    return found?.environments.sort((a, b) => order.indexOf(a.kind) - order.indexOf(b.kind))[0];
+    return found?.environments
+      .filter((env) => env.kind !== 'local' || !env.machineId || env.machineId === machineId)
+      .sort((a, b) => order.indexOf(a.kind) - order.indexOf(b.kind))[0];
   }
 
   async autoCommitAfterQa(organizationId: string, taskId: string) {
@@ -553,22 +624,26 @@ export class AgentsService {
   }
 
   // Cada pasta do Workspace vira um projeto. Projeto que já tem o nome da pasta só ganha o folder
-  async syncProjects(organizationId: string, folders: unknown) {
-    if (!Array.isArray(folders) || folders.length > 200) {
+  async syncProjects(organizationId: string, machineId: string | undefined, raw: unknown) {
+    if (!Array.isArray(raw) || raw.length > 200) {
       throw new BadRequestException('folders deve ser uma lista de pastas');
     }
-    for (const folder of folders) checkProjectPath(folder);
+    for (const item of raw) checkProjectPath(typeof item === 'string' ? item : item?.name);
 
-    for (const folder of folders as string[]) {
-      const project = await this.prisma.project.findFirst({
-        where: { organizationId, OR: [{ folder }, { name: { equals: folder, mode: 'insensitive' } }] },
-        select: { id: true, folder: true },
-      });
+    const folders = cleanFolders(raw);
+    for (const item of folders) {
+      let project = await this.matchProject(organizationId, item, true);
       if (!project) {
-        await this.prisma.project.create({ data: { organizationId, name: folder, folder } });
-      } else if (project.folder !== folder) {
-        await this.prisma.project.update({ where: { id: project.id }, data: { folder } });
+        // Outro repositório com o mesmo nome de projeto: o remote diferencia
+        const sameName = await this.prisma.project.findFirst({ where: { organizationId, name: { equals: item.name, mode: 'insensitive' } }, select: { id: true } });
+        const name = sameName && item.remote ? item.remote : item.name;
+        project = await this.prisma.project.create({
+          data: { organizationId, name, folder: item.name, remote: item.remote },
+          select: { id: true, folder: true, remote: true, defaultMachineId: true },
+        });
       }
+      if (machineId) await this.saveLocation(project, machineId, item);
+      if (!project.folder) await this.prisma.project.update({ where: { id: project.id }, data: { folder: item.name } });
     }
 
     return this.listProjects(organizationId);
@@ -982,6 +1057,39 @@ export function compactTask(task: any) {
     createdAt: task.createdAt,
     updatedAt: task.updatedAt,
   };
+}
+
+export type MachineFolder = { name: string; path: string; remote: string | null };
+
+// Qualquer URL de origin vira host/dono/repo em minúsculas. Inválida vira null
+export function normalizeGitRemote(raw: unknown) {
+  if (typeof raw !== 'string') return null;
+
+  const value = raw
+    .trim()
+    .replace(/^(https?|ssh|git):\/\//i, '')
+    .replace(/^[^/@]+@/, '')
+    .replace(/^([^/:]+):/, '$1/')
+    .replace(/\/+$/, '')
+    .replace(/\.git$/i, '')
+    .replace(/\/+$/, '')
+    .toLowerCase();
+  return /^[\w.-]+\/[^\s]+$/.test(value) && !value.includes('..') ? value : null;
+}
+
+// Aceita a lista nova ({ name, path, remote }) e a antiga (só os nomes). O que não for pasta válida fica de fora
+function cleanFolders(raw: unknown): MachineFolder[] {
+  if (!Array.isArray(raw)) return [];
+
+  const folders: MachineFolder[] = [];
+  for (const item of raw.slice(0, 200)) {
+    const name = typeof item === 'string' ? item : item?.name;
+    if (typeof name !== 'string' || !/^[\w.-]+$/.test(name) || name.startsWith('.')) continue;
+
+    const path = typeof item?.path === 'string' && item.path.length <= 500 ? item.path : name;
+    folders.push({ name, path, remote: normalizeGitRemote(item?.remote) });
+  }
+  return folders;
 }
 
 // Só o nome de uma pasta do workspace, sem subir de diretório
