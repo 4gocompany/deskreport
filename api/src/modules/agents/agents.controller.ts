@@ -162,7 +162,8 @@ export class AgentsController {
     checkProjectPath(data?.projectPath);
     const task = await this.agentsService.commentTask(orgId, ref, data);
     this.agentsGateway.emitTask(orgId, 'task:updated', task);
-    await this.agentsGateway.dispatchMentions(orgId, task.id, data.content, data.agent, data.projectPath);
+    // Comentário do QA no meio da execução também não aciona agente por menção
+    if (data?.stage !== 'qa') await this.agentsGateway.dispatchMentions(orgId, task.id, data.content, data.agent, data.projectPath);
     return compactTask(task);
   }
 

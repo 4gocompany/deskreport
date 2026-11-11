@@ -1472,7 +1472,7 @@ async function runTask(task) {
   const readOnly = readOnlyStage(task, stage);
   // QA sem ambiente no ar valida só o código, e o comentário diz isso em vez de "QA concluído"
   task.qaWithoutEnvironment = stage === 'qa' && (!task.environment || (task.environment.kind === 'local' && task.environmentState !== 'up'));
-  const [bin, child] = startAgent(task.agent, buildPrompt(task, cwd), cwd, { DESKREPORT_TASK_ID: task.taskId, DESKREPORT_MODEL: task.model }, stream, undefined, task.model, readOnly);
+  const [bin, child] = startAgent(task.agent, buildPrompt(task, cwd), cwd, { DESKREPORT_TASK_ID: task.taskId, DESKREPORT_MODEL: task.model, DESKREPORT_STAGE: stageRole(stage, task.agent) === 'qa' ? 'qa' : stage || '' }, stream, undefined, task.model, readOnly);
 
   let output = '';
   let stopReason = '';
@@ -1618,7 +1618,9 @@ async function runTask(task) {
     if (readOnlyBroken) facts.push(`Aviso do DeskReport: esta etapa não pode alterar arquivos e alterou:\n${touchedFiles.map((file) => `- ${file}`).join('\n')}\nConfira e desfaça antes de seguir. A esteira parou aqui.`);
     const summary = cleanSummary([stopReason, output.trim()].filter(Boolean).join('\n\n'));
     const sections = stoppedByUser ? null : parseSections(summary);
-    const report = [sections ? fitSummary(sections.comment || '', true) : fitSummary(summary, stream), ...facts].filter(Boolean).join('\n\n');
+    // Com comando bloqueado o resumo pode dar como feito um passo que não aconteceu. O aviso vai no topo, antes do texto do agente
+    const blockedWarning = denials.length > 0 ? 'Aviso do DeskReport: houve comando bloqueado nesta execução. Algum passo relatado abaixo pode não ter sido feito, confira a lista no fim.' : '';
+    const report = [blockedWarning, sections ? fitSummary(sections.comment || '', true) : fitSummary(summary, stream), ...facts].filter(Boolean).join('\n\n');
     // Spec pronta: a complexidade sai daqui, antes da API acionar a próxima etapa
     const classification = stage === 'spec' && code === 0 && !stoppedByUser ? await classifySpec({ title: task.title, description: task.description, spec: sections?.spec || summary }) : null;
     // Parada pelo usuário nunca conta como sucesso, mesmo se o agente sair com 0
@@ -2129,6 +2131,7 @@ const verifyNote = [
   '- Não afirme nada que não conferiu. Antes de citar arquivo, função, rota, flag, pacote ou modelo, confira no código ou rodando o comando. Se não souber, diga que não sabe.',
   '- Só diga que terminou depois de rodar a verificação do projeto (build, typecheck ou testes) e ela passar. Informe numa linha o comando e o resultado.',
   '- Se um comando for bloqueado por permissão ou sandbox, não tente contornar. Faça o que der, deixe o código consistente e liste em Impedimentos o comando exato que foi bloqueado.',
+  '- Nunca relate como feito um passo cujo comando foi bloqueado. Diga que ficou pendente e quem precisa rodar.',
   '- Mexa só no que a tarefa pede e siga o padrão do projeto: Prettier, lint e o estilo dos arquivos vizinhos.',
 ].join('\n');
 
@@ -2137,7 +2140,7 @@ const verifyNote = [
 const rolePromptDefaults = {
   architecture: ['SPEC:', '(a spec completa, sem limite de tamanho)', 'COMMENT:', '(curto: avise que a spec está pronta e diga o que o próximo agente deve seguir)'].join('\n'),
   engineering: ['COMMENT:', '(o que foi feito, curto, e o próximo agente com @)', 'CHANGELOG:', '(o que mudou, em itens curtos)'].join('\n'),
-  qa: ['COMMENT:', '(o resultado de cada passo testado, curto, e o próximo agente com @)', 'CHANGELOG:', '(problemas encontrados, em itens curtos)'].join('\n'),
+  qa: ['COMMENT:', '(o resultado de cada passo testado, curto. Não mencione agente: depois do QA quem decide é a pessoa)', 'CHANGELOG:', '(problemas encontrados, em itens curtos)'].join('\n'),
 };
 const reviewSections = ['COMMENT:', '(parecer curto: aprovado ou não, e o próximo agente com @)', 'CHANGELOG:', '(problemas encontrados, em itens curtos)'].join('\n');
 const roleMarkers = { architecture: ['SPEC:', 'COMMENT:'], engineering: ['COMMENT:', 'CHANGELOG:'], qa: ['COMMENT:', 'CHANGELOG:'] };
@@ -2678,7 +2681,7 @@ function callTool(name, args, agent) {
   if (name === 'deskreport_get_task') return mcpApi('GET', taskPath);
   if (name === 'deskreport_create_task') return mcpApi('POST', '/agents/mcp/tasks', { ...fields, agent });
   if (name === 'deskreport_update_task') return mcpApi('PATCH', taskPath, fields);
-  if (name === 'deskreport_comment_task') return mcpApi('POST', `${taskPath}/comments`, { content: fields.content, agent, model: process.env.DESKREPORT_MODEL || config.models?.[agent] || '' });
+  if (name === 'deskreport_comment_task') return mcpApi('POST', `${taskPath}/comments`, { content: fields.content, agent, model: process.env.DESKREPORT_MODEL || config.models?.[agent] || '', stage: process.env.DESKREPORT_STAGE || undefined });
   if (name === 'deskreport_ask_human') return mcpApi('POST', `${taskPath}/ask`, { question: fields.question, options: fields.options, agent });
   if (name === 'deskreport_dispatch_task') return mcpApi('POST', `${taskPath}/dispatch`, fields);
   if (name === 'deskreport_send_agent_message') {

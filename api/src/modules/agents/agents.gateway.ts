@@ -287,6 +287,8 @@ export class AgentsGateway implements OnGatewayConnection {
         if (result) return;
       }
     }
+    // Depois do QA a menção não aciona ninguém, nem para commit: o único caminho automático é o commit acima
+    if (data.stage === 'qa') return;
     const mentioned = await this.dispatchMentions(organizationId, taskId, text, data.agent);
     // Conta também quem o agente já acionou por comentário durante a etapa
     const handedOff = mentioned.length > 0 || (this.handoffs[`${taskId}:${data.agent}`] || []).length > 0;
