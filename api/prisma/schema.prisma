@@ -7,39 +7,39 @@ datasource db {
 }
 
 model Task {
-  id          String    @id @default(uuid())
-  companyId   String    @map("company_id")
-  shortId     Int       @map("short_id")
-  title       String
-  project     String
-  description String?
+  id                  String    @id @default(uuid())
+  companyId           String    @map("company_id")
+  shortId             Int       @map("short_id")
+  title               String
+  project             String
+  description         String?
   // Descrição de antes da spec do agente, e quem editou e quando
   descriptionPrevious String?   @map("description_previous")
   specEditedBy        String?   @map("spec_edited_by")
   specEditedAt        DateTime? @map("spec_edited_at")
-  reporterId  String?   @map("reporter_id")
-  assignees   User[]    @relation("task_assignees")
-  teamId      String?   @map("team_id")
-  status      String    @default("todo")
-  priority    String    @default("medium")
-  tags        Json?
-  dueDate     DateTime? @map("due_date")
+  reporterId          String?   @map("reporter_id")
+  assignees           User[]    @relation("task_assignees")
+  teamId              String?   @map("team_id")
+  status              String    @default("todo")
+  priority            String    @default("medium")
+  tags                Json?
+  dueDate             DateTime? @map("due_date")
   // Tokens que os agentes gastaram na tarefa e o orçamento máximo dela
-  tokensUsed  Int       @default(0) @map("tokens_used")
-  tokenBudget Int       @default(50000) @map("token_budget")
+  tokensUsed          Int       @default(0) @map("tokens_used")
+  tokenBudget         Int       @default(50000) @map("token_budget")
   // Pergunta aberta por um agente { agent, question, options, createdAt }: segura o Release até a pessoa responder
-  waitingFor  Json?     @map("waiting_for")
+  waitingFor          Json?     @map("waiting_for")
   // Tier do Micro-Router: low (free), medium (eco) ou high (frontier). Define o modelo sugerido no despacho
-  complexity  String    @default("low")
+  complexity          String    @default("low")
   // Tipo GitFlow: feature, bugfix, hotfix, security, refactor ou documentation. Define a skill injetada no prompt
-  type        String    @default("feature")
+  type                String    @default("feature")
 
   team         Team?              @relation(fields: [teamId], references: [id], onDelete: SetNull)
   comments     TaskComment[]
   chatSessions AgentChatSession[]
   attachments  TaskAttachment[]
-  createdAt DateTime      @default(now()) @map("created_at")
-  updatedAt DateTime      @updatedAt @map("updated_at")
+  createdAt    DateTime           @default(now()) @map("created_at")
+  updatedAt    DateTime           @updatedAt @map("updated_at")
 
   @@unique([companyId, shortId])
   @@map("tasks")
@@ -204,22 +204,42 @@ model Invitation {
 }
 
 model Project {
-  id             String    @id @default(uuid())
-  organizationId String    @map("organization_id")
-  name           String
-  description    String?
+  id                String    @id @default(uuid())
+  organizationId    String    @map("organization_id")
+  name              String
+  description       String?
   // Pasta do projeto dentro do Workspace da máquina, onde o agente roda
-  folder         String?
-  status         String    @default("active") // active, archived
-  startDate      DateTime? @map("start_date")
-  endDate        DateTime? @map("end_date")
-  createdAt      DateTime  @default(now()) @map("created_at")
-  updatedAt      DateTime  @updatedAt @map("updated_at")
+  folder            String?
+  // Depois do QA aprovado, o DevOps commita sozinho (sem push nem deploy)
+  autoCommitAfterQa Boolean   @default(false) @map("auto_commit_after_qa")
+  status            String    @default("active") // active, archived
+  startDate         DateTime? @map("start_date")
+  endDate           DateTime? @map("end_date")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
 
-  teams       ProjectTeam[]
-  assignments ProjectAssignment[]
+  teams        ProjectTeam[]
+  assignments  ProjectAssignment[]
+  environments ProjectEnvironment[]
 
   @@map("projects")
+}
+
+model ProjectEnvironment {
+  id           String   @id @default(uuid())
+  projectId    String   @map("project_id")
+  name         String
+  kind         String // local, staging, production
+  url          String
+  healthUrl    String?  @map("health_url")
+  startCommand String?  @map("start_command")
+  qaEnabled    Boolean  @default(false) @map("qa_enabled")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@map("project_environments")
 }
 
 model ProjectTeam {

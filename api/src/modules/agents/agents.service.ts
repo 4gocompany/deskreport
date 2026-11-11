@@ -459,6 +459,10 @@ export class AgentsService {
       mode,
       // Etapa pedida pela esteira. Hoje só o QA, que o runner não adivinha pelo cargo quando o mesmo agente revisa
       stage: data?.stage === 'qa' ? 'qa' : undefined,
+      // Ambiente de QA do projeto. Vem só do cadastro, nunca de texto de tarefa ou comentário
+      environment: data?.stage === 'qa' ? await this.qaEnvironment(organizationId, task.project) : undefined,
+      // Commit automático depois do QA aprovado: o DevOps commita, sem push nem deploy
+      commit: data?.commit === true ? true : undefined,
       // Micro-Router: o client usa o modelo sugerido quando a máquina não fixou um modelo para o agente
       complexity: task.complexity,
       // O tipo define a skill injetada no prompt do agente
@@ -491,6 +495,36 @@ export class AgentsService {
       select: { folder: true },
     });
     return found?.folder || undefined;
+  }
+
+  // Ambientes liberados para o QA: local primeiro, depois staging, e produção só se o projeto marcou
+  async qaEnvironment(organizationId: string, project: string) {
+    const found = await this.prisma.project.findFirst({
+      where: { organizationId, OR: [{ id: project }, { name: { equals: project, mode: 'insensitive' } }] },
+      select: { environments: { where: { qaEnabled: true }, select: { name: true, kind: true, url: true, healthUrl: true, startCommand: true } } },
+    });
+    const order = ['local', 'staging', 'production'];
+    return found?.environments.sort((a, b) => order.indexOf(a.kind) - order.indexOf(b.kind))[0];
+  }
+
+  async autoCommitAfterQa(organizationId: string, taskId: string) {
+    const task = await this.prisma.task.findFirst({ where: { id: taskId, companyId: organizationId }, select: { project: true } });
+    if (!task) return false;
+    const found = await this.prisma.project.findFirst({
+      where: { organizationId, OR: [{ id: task.project }, { name: { equals: task.project, mode: 'insensitive' } }] },
+      select: { autoCommitAfterQa: true },
+    });
+    return found?.autoCommitAfterQa === true;
+  }
+
+  // Projetos ativos com pasta e sem ambiente liberado para o QA, para o aviso do onboarding do widget
+  async projectsWithoutQa(organizationId: string) {
+    const projects = await this.prisma.project.findMany({
+      where: { organizationId, status: 'active', folder: { not: null }, environments: { none: { qaEnabled: true } } },
+      select: { name: true },
+      orderBy: { name: 'asc' },
+    });
+    return { organizationId, names: projects.map((project) => project.name) };
   }
 
   // Rotas do MCP: o agente fala com o DeskReport pela chave da máquina, sempre preso à organização dela

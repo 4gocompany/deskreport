@@ -91,6 +91,13 @@ export class AgentsController {
   }
 
   @AllowAnonymous()
+  @Get('agents/mcp/projects/without-qa')
+  async mcpProjectsWithoutQa(@Headers('authorization') authorization: string) {
+    const orgId = await this.machineOrg(authorization);
+    return this.agentsService.projectsWithoutQa(orgId);
+  }
+
+  @AllowAnonymous()
   @Post('agents/mcp/projects')
   async mcpCreateProject(@Headers('authorization') authorization: string, @Body() data: any) {
     const orgId = await this.machineOrg(authorization);

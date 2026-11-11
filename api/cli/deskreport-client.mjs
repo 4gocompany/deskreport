@@ -391,8 +391,9 @@ function handleLocal(req, res) {
   if (route === 'POST /config/preferences') return changePreferences(req, res);
   if (route === 'POST /quit') return quit(res, url.searchParams.get('force') === '1');
   if (route === 'GET /health') return sendJson(res, 200, { ok: true });
+  if (route === 'GET /projects/without-qa') return projectsWithoutQa(res);
   if (route === 'POST /open-web') {
-    openUrl(config.webUrl);
+    openUrl(url.searchParams.get('to') === 'projects' && projectsUrl ? projectsUrl : config.webUrl);
     return sendJson(res, 200, { ok: true });
   }
   if (route === 'GET /icon.svg') {
@@ -606,6 +607,19 @@ function finishOnboarding(res) {
   saveConfig({ onboardingDone: true });
   sendJson(res, 200, { ok: true });
   broadcast();
+}
+
+// Tela de projetos do painel, onde ficam os ambientes. Vem da última consulta dos projetos sem ambiente de QA
+let projectsUrl = '';
+
+async function projectsWithoutQa(res) {
+  try {
+    const { organizationId, names } = await mcpApi('GET', '/agents/mcp/projects/without-qa');
+    projectsUrl = `${config.webUrl}/${organizationId}/projects`;
+    sendJson(res, 200, { names });
+  } catch {
+    sendJson(res, 200, { names: [] });
+  }
 }
 
 // A senha nasce aqui e só existe no qa.json. A API guarda o hash e devolve só o e-mail
@@ -1342,6 +1356,7 @@ async function runTask(task) {
   sendTelemetry({ agent: task.agent, state: 'working', project: path.basename(cwd), action: `Iniciando: ${task.title}`, taskId: task.taskId, model: task.model });
 
   await downloadAttachments(task);
+  const environment = stage === 'qa' ? await startEnvironment(task, cwd) : null;
 
   // Fotografia do repositório antes do agente: o comentário final lista só o que esta execução mexeu
   const startedAt = Date.now();
@@ -1456,12 +1471,14 @@ async function runTask(task) {
 
   child.on('error', (error) => {
     clearTimeout(timer);
+    environment?.stop();
     delete stoppers[task.taskId];
     finish(task, 1, `Não foi possível rodar ${bin}: ${error.message}`);
   });
   child.on('close', async (code) => {
     clearTimeout(timer);
     clearTimeout(killTimer);
+    environment?.stop();
     delete stoppers[task.taskId];
     if (running[task.agent] !== task) return;
     if (requeue) {
@@ -1497,6 +1514,69 @@ async function runTask(task) {
     // Parada pelo usuário nunca conta como sucesso, mesmo se o agente sair com 0
     finish(task, stoppedByUser ? 1 : code ?? 1, report, touchedFiles, stoppedByUser, classification, sections, stage);
   });
+}
+
+const ENV_READY_MS = 120_000;
+const loopbackHosts = ['localhost', '127.0.0.1', '[::1]'];
+
+// Sobe o ambiente local do QA. O cadastro do projeto só diz o nome do script, e o que roda é o script versionado no package.json da pasta.
+// Assim o painel nunca manda um comando para a máquina. Staging e produção não sobem nada: a URL vai no prompt
+async function startEnvironment(task, cwd) {
+  const env = task.environment;
+  if (!env || env.kind !== 'local' || !env.startCommand) return null;
+  task.environmentState = 'down';
+
+  const hosts = [env.url, env.healthUrl].filter(Boolean).map((value) => new URL(value).hostname);
+  const scripts = readJson(path.join(cwd, 'package.json')).scripts || {};
+  if (!hosts.every((host) => loopbackHosts.includes(host)) || !/^[\w:.-]{1,60}$/.test(env.startCommand) || !scripts[env.startCommand]) return null;
+
+  const manager = existsSync(path.join(cwd, 'pnpm-lock.yaml')) ? 'pnpm' : existsSync(path.join(cwd, 'yarn.lock')) ? 'yarn' : 'npm';
+  const windows = process.platform === 'win32';
+  const child = spawn(manager, ['run', env.startCommand], { cwd, shell: windows, detached: !windows, stdio: 'ignore', env: agentEnv() });
+  child.on('error', () => {});
+  console.log(`[QA] Subindo ambiente local de ${path.basename(cwd)}`);
+
+  function stop() {
+    try {
+      if (windows) execFile('taskkill', ['/pid', String(child.pid), '/t', '/f'], () => {});
+      else process.kill(-child.pid, 'SIGTERM');
+    } catch {}
+  }
+
+  const limit = Date.now() + ENV_READY_MS;
+  let ready = false;
+  while (!ready && Date.now() < limit && child.exitCode === null) {
+    ready = await responds(env.healthUrl || env.url);
+    if (!ready) await new Promise((resolve) => setTimeout(resolve, 2000));
+  }
+  task.environmentState = ready ? 'up' : 'down';
+  if (!ready) stop();
+  return { stop };
+}
+
+async function responds(url) {
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(3000) });
+    return res.status < 500;
+  } catch {
+    return false;
+  }
+}
+
+// Orientação do ambiente no prompt do QA
+function environmentNote(task) {
+  const env = task.environment;
+  if (!env) return 'Este projeto não tem ambiente de QA cadastrado. Valide só o código e avise no COMMENT que não testou no navegador.';
+  if (env.kind === 'local' && task.environmentState !== 'up') {
+    return `O ambiente local "${env.name}" não ficou pronto (script de subida não encontrado no package.json, ou a checagem falhou). Valide só o código e avise no COMMENT que não testou no navegador.`;
+  }
+  const lines = [`Ambiente de QA: ${env.name} (${env.kind}), URL ${env.url}. Teste no navegador por essa URL.`];
+  if (env.kind === 'local') {
+    lines.push('- O DeskReport subiu esse ambiente e derruba ao fim da etapa: não suba nem derrube servidores.');
+    lines.push('- O login usa o banco local: se o usuário do QA não existir, crie pelo cadastro do painel local com o mesmo e-mail e a senha do qa.json.');
+  }
+  if (env.kind === 'production') lines.push('- Produção: só leia e navegue, sem criar, alterar ou apagar dados.');
+  return lines.join('\n');
 }
 
 // Backoff do 429: o agente continua ocupado com a tarefa durante a espera, e o Parar cancela a nova tentativa
@@ -2008,7 +2088,7 @@ function typeNote(type) {
 // Tarefa interrompida (cota ou client reiniciado) volta com o aviso e o último progresso
 function buildPrompt(task, cwd) {
   const yagni = config.yagniMode ? yagniNote : '';
-  const prompt = [taskPrompt(task, cwd), typeNote(task.type), qaNote(task), ['implement', 'review', 'qa'].includes(taskStage(task, cwd)) ? verifyNote : '', sectionsNote(taskStage(task, cwd), task.agent), safetyNote, taskStage(task, cwd) === 'comment' ? '' : outOfScopeNote, yagni, teamNote(task.agent), gitContext(cwd), fileLinkNote(cwd)].filter(Boolean).join('\n\n');
+  const prompt = [taskPrompt(task, cwd), typeNote(task.type), qaNote(task), taskStage(task, cwd) === 'qa' ? environmentNote(task) : '', ['implement', 'review', 'qa'].includes(taskStage(task, cwd)) ? verifyNote : '', sectionsNote(taskStage(task, cwd), task.agent), safetyNote, taskStage(task, cwd) === 'comment' ? '' : outOfScopeNote, yagni, teamNote(task.agent), gitContext(cwd), fileLinkNote(cwd)].filter(Boolean).join('\n\n');
   if (!task.resumed) return prompt;
   return [
     prompt,
@@ -2167,16 +2247,10 @@ function hasRole(agent, role) {
   return Boolean(config.agentRoles?.[agent]?.includes(role));
 }
 
-// Quem só especifica ou revisa não altera código: Arquitetura, Code Review e Suporte sem um cargo que implementa
+// Quem só especifica, revisa ou testa não altera código: Arquitetura, Code Review, QA e Suporte sem um cargo que implementa
 function canEdit(agent) {
   const roles = config.agentRoles?.[agent] || [];
-  return roles.length === 0 || roles.some((role) => ['engineering', 'devops', 'qa', 'documentation'].includes(role));
-}
-
-// QA que também revisa ou especifica só faz QA quando a esteira pede. Nas outras vezes faz o outro papel e não altera código
-function writesCode(agent) {
-  const onlyQaEdits = !['engineering', 'devops', 'documentation'].some((role) => hasRole(agent, role)) && (hasRole(agent, 'review') || hasRole(agent, 'architecture'));
-  return canEdit(agent) && !onlyQaEdits;
+  return roles.length === 0 || roles.some((role) => ['engineering', 'devops', 'documentation'].includes(role));
 }
 
 // Etapa da esteira pelo cargo do agente nesta máquina, e não pelo nome dele
@@ -2184,10 +2258,11 @@ function taskStage(task, cwd) {
   if (task.mode === 'comment') return 'comment';
   // A esteira pede o QA direto, mesmo para quem também revisa
   if (task.stage === 'qa') return 'qa';
-  if (writesCode(task.agent)) return 'implement';
+  if (canEdit(task.agent)) return 'implement';
   // Tarefa já em andamento é revisão, mesmo se o implementador commitou e não sobrou arquivo pendente
   if (hasRole(task.agent, 'review') && (hasChanges(cwd) || ['in-progress', 'review'].includes(task.status))) return 'review';
   if (hasRole(task.agent, 'architecture')) return 'spec';
+  if (hasRole(task.agent, 'qa')) return 'qa';
   return 'review';
 }
 
@@ -2202,7 +2277,7 @@ function taskPrompt(task, cwd) {
   const request = task.mode !== 'comment' && task.comment ? `Pedido do agente anterior para esta etapa:\n${external(plainText(task.comment))}` : '';
 
   if (stage === 'comment') {
-    const editRule = writesCode(task.agent)
+    const editRule = canEdit(task.agent)
       ? 'Se ele pedir implementação, correção, ajuste ou execução, faça a alteração no código desta pasta e responda com um resumo curto do que foi feito.'
       : 'Pelo seu cargo você não altera código. Se o pedido exigir implementação, responda e mencione com @ o agente de Engenharia dizendo o que ele deve fazer.';
     return [
@@ -2266,9 +2341,20 @@ function taskPrompt(task, cwd) {
       'Nunca inclua no resumo final saídas de comandos (como $ cd, npx tsc, git diff, head), logs de terminal nem trechos longos de código.',
       'Se algo não foi feito ou apresentou problema, termine com uma seção Impedimentos explicando o motivo.',
       'Esse resumo final será o comentário publicado na tarefa.',
-      'Não faça commit nem push: o commit vem depois da revisão e do teste.',
+      ...finalRules(task, stage),
     ].join('\n'),
   ].filter(Boolean).join('\n\n');
+}
+
+function finalRules(task, stage) {
+  if (stage === 'qa') {
+    return [
+      'Você é o QA do time e não altera código nem faz commit.',
+      'Se achar um problema, descreva o passo, o esperado e o obtido, e mencione com @ o agente de Engenharia para corrigir. A correção volta para a revisão.',
+    ];
+  }
+  if (task.commit) return ['QA aprovado: faça o commit só dos arquivos desta tarefa, seguindo a regra de commits do projeto. Não faça push nem deploy.'];
+  return ['Não faça commit nem push: o commit vem depois da revisão e do teste.'];
 }
 
 // Registra o MCP deskreport nos agentes habilitados e tira dos desabilitados
@@ -2884,6 +2970,7 @@ const widgetHtml = `<!doctype html>
   let onboardingShown = false;
   let wantOverview = false;
   let onboardingError = '';
+  let withoutQa = null;
 
   function el(tag, className, text) {
     const node = document.createElement(tag);
@@ -3133,7 +3220,24 @@ const widgetHtml = `<!doctype html>
     row.append(el('span', 'icon', '⌂'), rowText(state.workspaceName || 'Escolher pasta', state.workspaceRoot || 'Pasta raiz dos projetos'), el('span', 'chevron', '›'));
     row.onclick = function () { returnTo = 'onboarding'; openPicker(state.workspaceRoot); };
     card.append(row);
-    return [stepHeader('Workspace', 'Escolha a pasta raiz onde ficam os projetos.'), card, stepButtons('')];
+    return [stepHeader('Workspace', 'Escolha a pasta raiz onde ficam os projetos.'), card, ...withoutQaNotice(), stepButtons('')];
+  }
+
+  async function loadWithoutQa() {
+    withoutQa = (await (await fetch('/projects/without-qa')).json()).names;
+    if (step === 3) renderOnboarding();
+  }
+
+  function withoutQaNotice() {
+    if (!state.workspaceRoot) return [];
+    if (withoutQa === null) {
+      loadWithoutQa();
+      return [];
+    }
+    if (withoutQa.length === 0) return [];
+    const notice = el('div', 'alert', 'Sem ambiente de QA: ' + withoutQa.join(', ') + '. O QA valida só o código nesses projetos.');
+    notice.append(button('Cadastrar ambientes no painel', 'ghost', function () { postJson('/open-web?to=projects'); }));
+    return [notice];
   }
 
   function overviewRow(title, subtitle, target, configured) {

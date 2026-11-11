@@ -260,14 +260,26 @@ export class AgentsGateway implements OnGatewayConnection {
         if (result) return;
       }
     }
+    // QA aprovado: o projeto pode pedir o commit ao DevOps. Sem a opção a esteira para e espera a pessoa
+    if (data.stage === 'qa' && approved(text) && (await this.agentsService.autoCommitAfterQa(organizationId, taskId))) {
+      const devops = await this.agentsService.agentForRole(organizationId, 'devops');
+      if (devops && this.countAutoRun(taskId)) {
+        const result = await this.dispatchTask(organizationId, taskId, { agent: devops, comment: text, commit: true, auto: true }).catch(() => null);
+        if (result) return;
+      }
+    }
     const mentioned = await this.dispatchMentions(organizationId, taskId, text, data.agent);
     // Conta também quem o agente já acionou por comentário durante a etapa
     const handedOff = mentioned.length > 0 || (this.handoffs[`${taskId}:${data.agent}`] || []).length > 0;
-    // Etapa pedida por outro agente segue só por menção, senão o commit do DevOps voltaria para a revisão
-    if (handedOff || data.handoff || data.agent === 'antigravity' || data.mode === 'comment') return;
+    if (handedOff || data.mode === 'comment') return;
 
-    if ((await this.agentsService.enabledAgents(organizationId)).includes('antigravity') && this.countAutoRun(taskId)) {
-      await this.dispatchTask(organizationId, taskId, { agent: 'antigravity', auto: true }).catch(() => null);
+    // Implementação que deixou arquivos alterados vai para a revisão, mesmo pedida por outro agente que esqueceu de mencionar o revisor.
+    // O commit do DevOps não deixa arquivo pendente e para aqui. Runner antigo, sem a etapa, segue a regra de antes
+    const implemented = data.stage ? data.stage === 'implement' && Array.isArray(data.touchedFiles) && data.touchedFiles.length > 0 : !data.handoff && data.agent !== 'antigravity';
+    if (!implemented) return;
+    const reviewer = await this.agentsService.agentForRole(organizationId, 'review');
+    if (reviewer && reviewer !== data.agent && this.countAutoRun(taskId)) {
+      await this.dispatchTask(organizationId, taskId, { agent: reviewer, auto: true }).catch(() => null);
     }
   }
 

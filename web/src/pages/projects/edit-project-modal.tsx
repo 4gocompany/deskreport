@@ -17,6 +17,8 @@ export function EditProjectModal({ project, onClose, onSuccess }: EditProjectMod
   const [status, setStatus] = useState('active');
   const [loading, setLoading] = useState(false);
   const [selectedTeamIds, setSelectedTeamIds] = useState<string[]>([]);
+  const [autoCommitAfterQa, setAutoCommitAfterQa] = useState(false);
+  const [environments, setEnvironments] = useState<any[]>([]);
 
   const { fetchProjects, teams, fetchTeams } = useTenantStore();
   const { company_id } = useTenant();
@@ -33,13 +35,25 @@ export function EditProjectModal({ project, onClose, onSuccess }: EditProjectMod
       setDescription(project.description || '');
       setStatus(project.status || 'active');
       setSelectedTeamIds(project.teams?.map((t: any) => t.teamId) || []);
+      setAutoCommitAfterQa(project.autoCommitAfterQa === true);
+      setEnvironments(project.environments || []);
     } else {
       setName('');
       setDescription('');
       setStatus('active');
       setSelectedTeamIds([]);
+      setAutoCommitAfterQa(false);
+      setEnvironments([]);
     }
   }, [project]);
+
+  const addEnvironment = () => {
+    setEnvironments((prev) => [...prev, { name: '', kind: 'local', url: '', healthUrl: '', startCommand: '', qaEnabled: true }]);
+  };
+
+  const changeEnvironment = (index: number, changes: any) => {
+    setEnvironments((prev) => prev.map((item, i) => (i === index ? { ...item, ...changes } : item)));
+  };
 
   const toggleTeam = (teamId: string) => {
     setSelectedTeamIds((prev) => (prev.includes(teamId) ? prev.filter((id) => id !== teamId) : [...prev, teamId]));
@@ -56,18 +70,27 @@ export function EditProjectModal({ project, onClose, onSuccess }: EditProjectMod
     }
 
     try {
-      const payload = { name, description, status, teamIds: selectedTeamIds };
+      const payload = { name, description, status, autoCommitAfterQa, teamIds: selectedTeamIds };
 
+      let saved: any;
       if (project) {
-        await authClient.$fetch(`${apiBase}/projects/${project.id}`, {
+        saved = await authClient.$fetch(`${apiBase}/projects/${project.id}`, {
           method: 'PUT',
           body: payload,
           headers,
         });
       } else {
-        await authClient.$fetch(`${apiBase}/projects`, {
+        saved = await authClient.$fetch(`${apiBase}/projects`, {
           method: 'POST',
           body: payload,
+          headers,
+        });
+      }
+      const projectId = project?.id || saved?.data?.id;
+      if (projectId) {
+        await authClient.$fetch(`${apiBase}/projects/${projectId}/environments`, {
+          method: 'PUT',
+          body: environments.map(({ name, kind, url, healthUrl, startCommand, qaEnabled }) => ({ name, kind, url, healthUrl, startCommand, qaEnabled })),
           headers,
         });
       }
@@ -134,6 +157,70 @@ export function EditProjectModal({ project, onClose, onSuccess }: EditProjectMod
               <option value='archived'>Arquivado</option>
             </select>
           </div>
+        </div>
+
+        <div className='space-y-3'>
+          <div className='flex items-center justify-between'>
+            <label className='text-[10px] font-black text-zinc-400 uppercase tracking-wider'>Ambientes ({environments.length})</label>
+            <Button type='button' variant='ghost' onClick={addEnvironment}>
+              Adicionar
+            </Button>
+          </div>
+          {environments.map((item, index) => (
+            <div key={index} className='space-y-2 p-3 rounded-xl border border-zinc-100 dark:border-zinc-800'>
+              <div className='flex gap-2'>
+                <input
+                  value={item.name}
+                  onChange={(e) => changeEnvironment(index, { name: e.target.value })}
+                  placeholder='Nome'
+                  className='flex-1 min-w-0 bg-zinc-50 dark:bg-zinc-800/50 border border-zinc-200 dark:border-zinc-700 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-500 font-medium'
+                />
+                <select
+                  value={item.kind}
+                  onChange={(e) => changeEnvironment(index, { kind: e.target.value, qaEnabled: e.target.value !== 'production' })}
+                  className='bg-zinc-50 dark:bg-zinc-800/50 border border-zinc-200 dark:border-zinc-700 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-500 font-medium'
+                >
+                  <option value='local'>Local</option>
+                  <option value='staging'>Staging</option>
+                  <option value='production'>Produção</option>
+                </select>
+              </div>
+              <input
+                value={item.url}
+                onChange={(e) => changeEnvironment(index, { url: e.target.value })}
+                placeholder='URL (ex: http://localhost:5173)'
+                className='w-full bg-zinc-50 dark:bg-zinc-800/50 border border-zinc-200 dark:border-zinc-700 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-500 font-medium'
+              />
+              <input
+                value={item.healthUrl || ''}
+                onChange={(e) => changeEnvironment(index, { healthUrl: e.target.value })}
+                placeholder='URL de checagem de pronto (opcional)'
+                className='w-full bg-zinc-50 dark:bg-zinc-800/50 border border-zinc-200 dark:border-zinc-700 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-500 font-medium'
+              />
+              {item.kind === 'local' && (
+                <input
+                  value={item.startCommand || ''}
+                  onChange={(e) => changeEnvironment(index, { startCommand: e.target.value })}
+                  placeholder='Script do package.json que sobe o projeto (ex: dev)'
+                  className='w-full bg-zinc-50 dark:bg-zinc-800/50 border border-zinc-200 dark:border-zinc-700 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-500 font-medium'
+                />
+              )}
+              <div className='flex items-center justify-between'>
+                <label className='flex items-center gap-2 text-xs text-zinc-600 dark:text-zinc-300'>
+                  <input type='checkbox' checked={item.qaEnabled === true} onChange={(e) => changeEnvironment(index, { qaEnabled: e.target.checked })} />
+                  {item.kind === 'production' ? 'QA pode usar produção' : 'QA pode usar'}
+                </label>
+                <Button type='button' variant='ghost' onClick={() => setEnvironments((prev) => prev.filter((_, i) => i !== index))}>
+                  Remover
+                </Button>
+              </div>
+            </div>
+          ))}
+          {environments.length === 0 && <div className='text-[10px] text-zinc-400 italic'>Sem ambiente, o QA valida só o código.</div>}
+          <label className='flex items-center gap-2 text-xs text-zinc-600 dark:text-zinc-300'>
+            <input type='checkbox' checked={autoCommitAfterQa} onChange={(e) => setAutoCommitAfterQa(e.target.checked)} />
+            Commit automático depois do QA (sem push nem deploy)
+          </label>
         </div>
 
         <div className='space-y-3'>

@@ -3,7 +3,7 @@ import { TaskCardProps } from './tasks-data';
 
 // Toda tarefa passa pela Especificação, que é onde a complexidade é classificada
 export function taskSteps() {
-  return ['Especificação', 'Desenvolvimento', 'QA', 'Revisão', 'Deploy'];
+  return ['Especificação', 'Desenvolvimento', 'Revisão', 'QA', 'Deploy'];
 }
 
 // A etapa ativa segue o status e o que o agente está fazendo, nunca o nome do agente sozinho

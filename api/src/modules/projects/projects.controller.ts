@@ -1,5 +1,5 @@
 import { Controller, Get, Post, Body, Param, Put, Delete } from '@nestjs/common';
-import { ProjectsService, CreateProjectDto } from './projects.service';
+import { ProjectsService, CreateProjectDto, EnvironmentDto } from './projects.service';
 import { ActiveOrg } from '../../auth/active-org.decorator';
 
 @Controller('projects')
@@ -24,6 +24,11 @@ export class ProjectsController {
     @Put(':id')
     update(@ActiveOrg() orgId: string, @Param('id') id: string, @Body() data: Partial<CreateProjectDto>) {
         return this.projectsService.update(id, orgId, data);
+    }
+
+    @Put(':id/environments')
+    saveEnvironments(@ActiveOrg() orgId: string, @Param('id') id: string, @Body() data: EnvironmentDto[]) {
+        return this.projectsService.saveEnvironments(id, orgId, data);
     }
 
     @Delete(':id')
