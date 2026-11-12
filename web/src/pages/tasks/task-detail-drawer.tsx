@@ -34,6 +34,7 @@ import { useSession } from '../../lib/auth-client';
 import { activeStep, taskSteps } from './task-pipeline';
 import { TaskTerminalDialog } from './components/task-terminal-dialog';
 import { OptionList } from './components/option-list';
+import { dateDay } from '../resume/use-inbox';
 import { TokenMeter } from './components/token-meter';
 import { UserAvatar } from './components/user-avatar';
 import { TaskAttachments } from './components/task-attachments';
@@ -937,7 +938,7 @@ export function TaskDetailDrawer({
                   </span>
                   <input
                     type='date'
-                    value={displayTask.dueDate ? displayTask.dueDate.slice(0, 10) : ''}
+                    value={displayTask.dueDate ? dateDay(displayTask.dueDate) : ''}
                     onChange={(e) => handlePropertyUpdate('dueDate', e.target.value || null)}
                     className={selectClass}
                   />

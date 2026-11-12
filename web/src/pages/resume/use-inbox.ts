@@ -54,13 +54,18 @@ export function today() {
   return new Date().toLocaleDateString('en-CA');
 }
 
-export function daysUntil(date: string) {
-  return date.slice ? (Date.parse(date.slice(0, 10)) - Date.parse(today())) / day : 0;
+// O authClient entrega data ISO da API já como Date, e o que o painel acabou de editar ainda é texto
+export function dateDay(date: string | Date) {
+  return new Date(date).toISOString().slice(0, 10);
+}
+
+export function daysUntil(date: string | Date) {
+  return (Date.parse(dateDay(date)) - Date.parse(today())) / day;
 }
 
 // Adia a partir de hoje quando o prazo já passou, senão a nova data continuaria vencida
-export function postpone(date: string, days: number) {
-  const base = daysUntil(date) < 0 ? today() : date.slice(0, 10);
+export function postpone(date: string | Date, days: number) {
+  const base = daysUntil(date) < 0 ? today() : dateDay(date);
   return new Date(Date.parse(base) + days * day).toISOString().slice(0, 10);
 }
 

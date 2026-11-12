@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Button, Dialog } from '../../components/ui';
 import { authClient } from '../../lib/auth-client';
 import { useTenantStore } from '../../store';
+import { dateDay } from '../resume/use-inbox';
 import { useTenant } from '../../hooks/useTenant';
 import { apiBase } from '../../api/fetcher';
 import { useMachines } from '../../hooks/useMachines';
@@ -46,7 +47,7 @@ export function EditProjectModal({ project, onClose, onSuccess }: EditProjectMod
       setPickedFolder('');
       setDefaultMachineId(project.defaultMachineId || '');
       setStatus(project.status || 'active');
-      setEndDate(project.endDate ? project.endDate.slice(0, 10) : '');
+      setEndDate(project.endDate ? dateDay(project.endDate) : '');
       setSelectedTeamIds(project.teams?.map((t: any) => t.teamId) || []);
       setAutoCommitAfterQa(project.autoCommitAfterQa === true);
       setProductOwnerId(project.productOwnerId || '');

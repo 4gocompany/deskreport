@@ -9,7 +9,7 @@ import { OptionList } from '../tasks/components/option-list';
 import { waitingQuestions } from '../tasks/tasks-data';
 import { agentProfile } from '../tasks/use-agents';
 import { useTaskStore } from '../tasks/use-task-store';
-import { InboxCategory, InboxItem, daysUntil, postpone, taskAgent, useInboxStore } from './use-inbox';
+import { InboxCategory, InboxItem, dateDay, daysUntil, postpone, taskAgent, useInboxStore } from './use-inbox';
 
 type InboxRowProps = {
   item: InboxItem;
@@ -48,7 +48,7 @@ function since(date?: string) {
   return `há ${Math.floor(minutes / 1440)} d`;
 }
 
-function dueText(date: string) {
+function dueText(date: string | Date) {
   const days = daysUntil(date);
   if (days < 0) return `atrasado há ${-days} d`;
   if (days === 0) return 'vence hoje';
@@ -240,7 +240,7 @@ export function InboxRow({ item, companyId, selected, onSelect, onOpenTask, onTe
     if (item.category === 'deadline' && task?.dueDate) {
       return (
         <>
-          <p className='text-sm text-zinc-600 dark:text-zinc-300'>Prazo: {dueText(task.dueDate)} ({task.dueDate.slice(0, 10).split('-').reverse().join('/')}).</p>
+          <p className='text-sm text-zinc-600 dark:text-zinc-300'>Prazo: {dueText(task.dueDate)} ({dateDay(task.dueDate).split('-').reverse().join('/')}).</p>
           <div className='flex gap-2'>
             <Button size='sm' variant='outline' onClick={() => run(() => updateTask(task.id, { dueDate: postpone(task.dueDate!, 3) }))} disabled={busy}>Adiar +3 dias</Button>
             <Button size='sm' onClick={() => run(() => updateTask(task.id, { status: 'done' }))} disabled={busy}>Concluir</Button>
@@ -255,7 +255,7 @@ export function InboxRow({ item, companyId, selected, onSelect, onOpenTask, onTe
       return (
         <>
           <p className='text-sm text-zinc-600 dark:text-zinc-300'>
-            {project.completion_percentage ?? 0}% concluído · prazo: {dueText(project.endDate)} ({project.endDate.slice(0, 10).split('-').reverse().join('/')})
+            {project.completion_percentage ?? 0}% concluído · prazo: {dueText(project.endDate)} ({dateDay(project.endDate).split('-').reverse().join('/')})
           </p>
           <div className='flex gap-2'>
             <Button size='sm' variant='outline' onClick={() => run(postponeProject)} disabled={busy}>Adiar +7 dias</Button>
