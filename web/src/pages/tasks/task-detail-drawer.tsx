@@ -662,7 +662,9 @@ export function TaskDetailDrawer({
                   <div className='rounded-xl border border-amber-200 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-500/10 p-3.5 space-y-2.5'>
                     <div className='flex items-center gap-2 text-xs font-semibold text-amber-700 dark:text-amber-300'>
                       <MessageCircleQuestion size={14} />
-                      {displayTask.waitingFor.agent ? agentProfile(displayTask.waitingFor.agent).name : displayTask.waitingFor.authorName || 'A equipe'} está aguardando você
+                      {displayTask.waitingFor.authorId && displayTask.waitingFor.authorId === user?.id
+                        ? 'Você sinalizou o PO e aguarda a resposta'
+                        : `${displayTask.waitingFor.agent ? agentProfile(displayTask.waitingFor.agent).name : displayTask.waitingFor.authorName || 'A equipe'} está aguardando você`}
                     </div>
                     <OptionList
                       key={displayTask.waitingFor.createdAt}
