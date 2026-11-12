@@ -173,7 +173,7 @@ export class AgentsController {
     const orgId = await this.machineOrg(authorization);
     const task = await this.agentsService.askHuman(orgId, ref, data);
     this.agentsGateway.emitTask(orgId, 'task:updated', task);
-    return compactTask(task);
+    return compactTask(await this.agentsGateway.askPo(orgId, task));
   }
 
   @AllowAnonymous()

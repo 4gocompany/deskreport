@@ -218,6 +218,8 @@ model Project {
   defaultMachineId  String?   @map("default_machine_id")
   // Depois do QA aprovado, o DevOps commita sozinho (sem push nem deploy)
   autoCommitAfterQa Boolean   @default(false) @map("auto_commit_after_qa")
+  // Quem responde as perguntas dos agentes: user_id de um membro ou agent-user-<agent>. Vazio: qualquer pessoa da organização
+  productOwnerId    String?   @map("product_owner_id")
   status            String    @default("active") // active, archived
   startDate         DateTime? @map("start_date")
   endDate           DateTime? @map("end_date")

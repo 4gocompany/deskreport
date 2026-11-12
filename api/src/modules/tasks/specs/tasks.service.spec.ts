@@ -85,7 +85,7 @@ describe('TasksService', () => {
         expect(prisma.taskComment.create).toHaveBeenCalledWith({
             data: { taskId: id, userId, content }
         });
-        expect(result.id).toBe(id);
+        expect(result.task.id).toBe(id);
     });
   });
 

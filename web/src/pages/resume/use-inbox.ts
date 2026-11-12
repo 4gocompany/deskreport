@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { create } from 'zustand';
 import { useMachines, Machine } from '../../hooks/useMachines';
+import { useSession } from '../../lib/auth-client';
 import { Project, useTenantStore } from '../../store';
 import { AgentStatus, useAgentsStore } from '../tasks/use-agents';
 import { TaskCardProps, TaskComment } from '../tasks/tasks-data';
@@ -54,7 +55,7 @@ export function today() {
 }
 
 export function daysUntil(date: string) {
-  return (Date.parse(date.slice(0, 10)) - Date.parse(today())) / day;
+  return date.slice ? (Date.parse(date.slice(0, 10)) - Date.parse(today())) / day : 0;
 }
 
 // Adia a partir de hoje quando o prazo já passou, senão a nova data continuaria vencida
@@ -78,11 +79,21 @@ function failedRun(task: TaskCardProps) {
   if (last?.metadata?.error || last?.content.includes('Implementação não entregue')) return last;
 }
 
-export function buildInbox(tasks: TaskCardProps[], projects: Project[], agents: AgentStatus[], machines: Machine[], dismissed: string[]) {
+// A pergunta aparece para quem pode responder: nunca para quem abriu, só para a pessoa PO do projeto quando há uma,
+// e só depois de escalada quando o PO é um agente
+function canAnswer(waitingFor: NonNullable<TaskCardProps['waitingFor']>, currentUserId?: string) {
+  if (waitingFor.authorId && waitingFor.authorId === currentUserId) return false;
+  if (!waitingFor.targetPoId) return true;
+  if (waitingFor.targetPoId.startsWith('agent-user-')) return !!waitingFor.escalatedToHuman;
+  return waitingFor.targetPoId === currentUserId;
+}
+
+export function buildInbox(tasks: TaskCardProps[], projects: Project[], agents: AgentStatus[], machines: Machine[], dismissed: string[], currentUserId?: string) {
   const items: InboxItem[] = [];
   const openTasks = tasks.filter((task) => task.status !== 'done');
 
   for (const task of tasks) {
+    if (task.waitingFor && !canAnswer(task.waitingFor, currentUserId)) continue;
     if (task.waitingFor) items.push({ key: `ask-${task.id}`, category: 'po_signal', label: 'Pergunta', tone: 'info', since: task.waitingFor.createdAt, task });
     else if (task.status === 'release') items.push({ key: `release-${task.id}`, category: 'po_signal', label: 'Pronta para validar', tone: 'info', since: task.updatedAt, task });
   }
@@ -131,6 +142,7 @@ export function useInbox(companyId?: string) {
   const agents = useAgentsStore((state) => state.agents);
   const dismissed = useInboxStore((state) => state.dismissed);
   const machines = useMachines(companyId);
+  const { data: session } = useSession();
 
   useEffect(() => {
     if (!companyId) return;
@@ -138,5 +150,5 @@ export function useInbox(companyId?: string) {
     fetchProjects(companyId);
   }, [companyId, fetchTasks, fetchProjects]);
 
-  return buildInbox(tasks, projects, agents, machines, dismissed);
+  return buildInbox(tasks, projects, agents, machines, dismissed, session?.user.id);
 }

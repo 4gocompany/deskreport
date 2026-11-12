@@ -1,8 +1,9 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { budgets, classifyWithJev, complexities, jevKey, routing } from './complexity';
 import { taskTypes } from './task-types';
+import { answerHtml, answerItems, answerText, cleanAnswers, findPo, normalizeQuestions, waitingFor } from './waiting';
 
 // Vazio limpa o prazo, texto de data vira Date e undefined mantém o que está salvo
 function toDate(value: unknown) {
@@ -135,41 +136,48 @@ export class TasksService {
         return { ...task, complexity, routing: { ...routing(complexity), reason } };
     }
 
-    async addComment(id: string, organizationId: string, userId: string, content: string) {
-        await this.ensureTaskInOrg(id, organizationId);
+    // Com pergunta aberta, answers (uma por pergunta) vira o registro das escolhas. Devolve também quem perguntou, para ser retomado
+    async addComment(id: string, organizationId: string, userId: string, content: string, answers?: unknown) {
+        const found = await this.ensureTaskInOrg(id, organizationId);
+        const waiting = found.waitingFor as any;
+        const questions = Array.isArray(waiting?.questions) ? waiting.questions : waiting?.question ? [{ question: waiting.question, options: [] }] : [];
+        const list = waiting ? cleanAnswers(answers, questions.length) : null;
+        const free = content.trim();
+        const items = list ? answerItems(questions, list) : waiting && free && questions.length ? answerItems(questions, questions.map((_, index) => (index === 0 ? free : '(ver resposta acima)'))) : null;
 
         await this.prisma.taskComment.create({
             data: {
                 taskId: id,
                 userId,
-                content
+                content: items ? answerHtml(items) : content,
+                metadata: items ? { poAnswer: { answeredBy: 'human', items } } : undefined
             }
         });
 
         // Comentário da pessoa responde a pergunta aberta pelo agente
-        await this.prisma.task.update({ where: { id }, data: { waitingFor: Prisma.DbNull } });
+        await this.prisma.task.update({ where: { id, companyId: organizationId }, data: { waitingFor: Prisma.DbNull } });
 
-        return this.findOne(id, organizationId);
+        const task = await this.findOne(id, organizationId);
+        const askedBy: string | undefined = typeof waiting?.agent === 'string' ? waiting.agent : undefined;
+        const askedStage: string | undefined = typeof waiting?.stage === 'string' ? waiting.stage : undefined;
+        return { task, askedBy, askedStage, answer: items ? answerText(items) : content };
     }
 
     // Sinalização da equipe para o Product Owner: segura o Release até alguém responder
     async askPo(id: string, organizationId: string, userId: string, data: any) {
         await this.ensureTaskInOrg(id, organizationId);
 
-        const question = typeof data?.question === 'string' ? data.question.trim().slice(0, 2000) : '';
-        if (!question) throw new BadRequestException('Informe question');
+        const questions = normalizeQuestions(data);
+        const task = await this.prisma.task.findFirst({ where: { id, companyId: organizationId }, select: { project: true, waitingFor: true } });
+        if (task.waitingFor) throw new ConflictException('A tarefa já possui uma pergunta pendente de resposta');
 
-        const options = Array.isArray(data?.options)
-            ? data.options.filter((option: unknown) => typeof option === 'string' && option.trim()).slice(0, 8).map((option: string) => option.trim().slice(0, 100))
-            : [];
         const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { name: true } });
         const agent = typeof data?.agent === 'string' && data.agent ? data.agent : undefined;
+        const targetPoId = await findPo(this.prisma, organizationId, task.project);
 
         await this.prisma.task.update({
-            where: { id },
-            data: {
-                waitingFor: { agent, authorId: userId, authorName: user?.name, question, options, multiSelect: Boolean(data?.multiSelect), createdAt: new Date().toISOString() },
-            },
+            where: { id, companyId: organizationId },
+            data: { waitingFor: waitingFor(questions, { agent, authorId: userId, authorName: user?.name, targetPoId }) },
         });
 
         return this.findOne(id, organizationId);

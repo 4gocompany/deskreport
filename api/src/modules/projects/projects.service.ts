@@ -13,6 +13,7 @@ export interface CreateProjectDto {
     endDate?: string | Date;
     status?: string;
     autoCommitAfterQa?: boolean;
+    productOwnerId?: string | null;
     teamIds?: string[];
 }
 
@@ -62,6 +63,15 @@ export class ProjectsService {
         if (!machine) throw new BadRequestException('Máquina não encontrada');
     }
 
+    // Product Owner é membro da organização: pessoa ou agent-user-<agent>. Vazio volta para qualquer pessoa
+    private async checkProductOwner(organizationId: string, productOwnerId: unknown) {
+        if (!productOwnerId) return null;
+
+        const member = typeof productOwnerId === 'string' ? await this.prisma.member.findFirst({ where: { organizationId, userId: productOwnerId }, select: { userId: true } }) : null;
+        if (!member) throw new BadRequestException('Product Owner não encontrado na organização');
+        return member.userId;
+    }
+
     // Só vale pasta que a máquina enviou. O remote vem dela, nunca do painel
     private async findMachineFolder(organizationId: string, location: CreateProjectDto['location']) {
         const machine = await this.prisma.agentMachine.findFirst({ where: { id: String(location?.machineId), organizationId }, select: { folders: true } });
@@ -76,6 +86,7 @@ export class ProjectsService {
         let { defaultMachineId } = dto;
         checkProjectPath(folder);
         if (defaultMachineId) await this.checkMachine(organizationId, defaultMachineId);
+        const productOwnerId = (await this.checkProductOwner(organizationId, dto.productOwnerId)) || undefined;
 
         const found = location ? await this.findMachineFolder(organizationId, location) : null;
         if (found) defaultMachineId = defaultMachineId || location.machineId;
@@ -92,6 +103,7 @@ export class ProjectsService {
                 endDate: toDate(endDate),
                 status,
                 autoCommitAfterQa,
+                productOwnerId,
                 locations: found ? { create: { machineId: location.machineId, folder: found.name, path: found.path, remote: found.remote } } : undefined,
                 teams: teamIds ? {
                     create: teamIds.map(teamId => ({ teamId }))
@@ -198,6 +210,7 @@ export class ProjectsService {
         let { folder, defaultMachineId } = data;
         checkProjectPath(folder);
         if (defaultMachineId) await this.checkMachine(organizationId, defaultMachineId);
+        const productOwnerId = data.productOwnerId === undefined ? undefined : await this.checkProductOwner(organizationId, data.productOwnerId);
 
         const found = location ? await this.findMachineFolder(organizationId, location) : null;
         if (found) {
@@ -224,7 +237,7 @@ export class ProjectsService {
 
         await this.prisma.project.update({
             where: { id },
-            data: { name, description, folder, remote: found ? found.remote : undefined, defaultMachineId, startDate: toDate(startDate), endDate: toDate(endDate), status, autoCommitAfterQa },
+            data: { name, description, folder, remote: found ? found.remote : undefined, defaultMachineId, startDate: toDate(startDate), endDate: toDate(endDate), status, autoCommitAfterQa, productOwnerId },
         });
 
         if (found) {

@@ -31,7 +31,7 @@ describe('TasksController', () => {
   });
 
   it('comentário sem agente não dispara nada', async () => {
-    tasksService.addComment.mockResolvedValue({ id: 't1', assignees: [] });
+    tasksService.addComment.mockResolvedValue({ task: { id: 't1', assignees: [] } });
 
     await controller.addComment('org1', 'u1', 't1', { content: '<p>ok</p>' });
 
@@ -39,7 +39,7 @@ describe('TasksController', () => {
   });
 
   it('comentário com @claude dispara o agente em modo comment e atribui', async () => {
-    tasksService.addComment.mockResolvedValue({ id: 't1', assignees: [] });
+    tasksService.addComment.mockResolvedValue({ task: { id: 't1', assignees: [] }, answer: '<p>@claude pode ajustar?</p>' });
     agentsGateway.dispatchTask.mockResolvedValue({ task: { assignees: [{ id: 'agent-user-claude' }] } });
 
     const task = await controller.addComment('org1', 'u1', 't1', { content: '<p>@claude pode ajustar?</p>', projectPath: 'api' });
@@ -54,7 +54,7 @@ describe('TasksController', () => {
   });
 
   it('agente escolhido no seletor dispara mesmo sem menção', async () => {
-    tasksService.addComment.mockResolvedValue({ id: 't1', assignees: [] });
+    tasksService.addComment.mockResolvedValue({ task: { id: 't1', assignees: [] } });
     agentsGateway.dispatchTask.mockResolvedValue(null);
 
     await controller.addComment('org1', 'u1', 't1', { content: '<p>dúvida</p>', agent: 'opencode' });

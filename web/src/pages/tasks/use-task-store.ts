@@ -21,9 +21,9 @@ interface TaskStore {
   updateTask: (id: string, updates: Partial<TaskCardProps>) => Promise<void>;
   deleteTask: (id: string) => Promise<void>;
   fetchTasks: () => Promise<void>;
-  addComment: (taskId: string, content: string, agent?: string) => Promise<void>;
+  addComment: (taskId: string, content: string, agent?: string, answers?: string[]) => Promise<void>;
   dispatchTask: (id: string, agent: string, machineId?: string) => Promise<string | null>;
-  askPo: (taskId: string, payload: { question: string; options?: string[]; multiSelect?: boolean; agent?: string }) => Promise<void>;
+  askPo: (taskId: string, payload: { header?: string; question: string; options?: (string | { label: string; description?: string })[]; multiSelect?: boolean; agent?: string }) => Promise<void>;
   stopTask: (id: string) => Promise<string | null>;
   fetchTerminal: (id: string) => Promise<string>;
   fetchTaskDiff: (id: string) => Promise<string>;
@@ -128,11 +128,11 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
     if (error) throw new Error(error.message);
     return data?.diff || '';
   },
-  addComment: async (taskId, content, agent) => {
+  addComment: async (taskId, content, agent, answers) => {
     try {
       const { data, error } = await authClient.$fetch<TaskCardProps>(`${API_URL}/${taskId}/comments`, {
         method: 'POST',
-        body: { content, agent: agent || undefined },
+        body: { content, agent: agent || undefined, answers },
         headers: { 'x-organization-id': getOrgId() },
       });
       if (!error && data) {

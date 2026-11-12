@@ -6,6 +6,7 @@ import { authClient } from '../../lib/auth-client';
 import { apiBase } from '../../api/fetcher';
 import { useTenantStore } from '../../store';
 import { OptionList } from '../tasks/components/option-list';
+import { waitingQuestions } from '../tasks/tasks-data';
 import { agentProfile } from '../tasks/use-agents';
 import { useTaskStore } from '../tasks/use-task-store';
 import { InboxCategory, InboxItem, daysUntil, postpone, taskAgent, useInboxStore } from './use-inbox';
@@ -134,19 +135,14 @@ export function InboxRow({ item, companyId, selected, onSelect, onOpenTask, onTe
       const who = waitingFor.agent ? agentProfile(waitingFor.agent).name : waitingFor.authorName || 'A equipe';
       return (
         <>
-          <p className='text-sm text-zinc-600 dark:text-zinc-300'>
-            <span className='font-medium text-zinc-900 dark:text-zinc-100'>{who}: </span>
-            {waitingFor.question}
-          </p>
-          {waitingFor.options && waitingFor.options.length > 0 && (
-            <OptionList
-              options={waitingFor.options}
-              multiSelect={waitingFor.multiSelect}
-              disabled={busy}
-              onConfirm={(options) => run(() => addComment(task.id, options.join(', '), waitingFor.agent))}
-            />
-          )}
-          <InlineReply placeholder='Responder' label='Responder' disabled={busy} onSubmit={(text) => run(() => addComment(task.id, text, waitingFor.agent))} />
+          <p className='text-xs font-medium text-zinc-900 dark:text-zinc-100'>{who} perguntou:</p>
+          <OptionList
+            key={waitingFor.createdAt}
+            questions={waitingQuestions(waitingFor)}
+            recommended={!!waitingFor.agent}
+            disabled={busy}
+            onConfirm={(answers) => run(() => addComment(task.id, answers.join('\n'), waitingFor.agent, answers))}
+          />
           <div className='flex gap-2'>
             <Button size='sm' variant='ghost' onClick={() => onOpenTask(task.id)}>Abrir tarefa</Button>
           </div>

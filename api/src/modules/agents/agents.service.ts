@@ -5,9 +5,10 @@ import { auth } from '../../auth/auth';
 import { PrismaService } from '../../prisma/prisma.service';
 import { budgets, complexities, finalTier, routing } from '../tasks/complexity';
 import { taskTypes } from '../tasks/task-types';
+import { answerHtml, answerItems, answerText, findPo, normalizeQuestions, waitingFor } from '../tasks/waiting';
 
 export const agentNames = ['antigravity', 'claude', 'opencode', 'codex', 'gemini', 'aider'];
-export const roleNames = ['engineering', 'review', 'qa', 'architecture', 'devops', 'documentation', 'support'];
+export const roleNames = ['engineering', 'review', 'qa', 'architecture', 'devops', 'documentation', 'support', 'product'];
 
 const agentUsers = {
   antigravity: agentUser('antigravity', 'Antigravity', '#16a34a', 'AG'),
@@ -515,8 +516,9 @@ export class AgentsService {
       where: { id: task.id },
       data: {
         // Máquina offline na esteira automática: o agente fica atribuído e a tarefa não anda
-        status: agent === 'antigravity' || mode === 'comment' || machineOffline ? task.status : 'in-progress',
-        assignees: { connect: { id: agentUsers[agent].id } },
+        // O agente PO só responde: não muda o status nem vira responsável
+        status: agent === 'antigravity' || mode === 'comment' || machineOffline || data?.stage === 'po' ? task.status : 'in-progress',
+        assignees: data?.stage === 'po' ? undefined : { connect: { id: agentUsers[agent].id } },
         // A escolha feita agora vale para as próximas etapas da esteira
         ...(data?.machineId && machine && data.machineId !== task.machineId ? { machineId: machine.id } : {}),
       },
@@ -544,7 +546,9 @@ export class AgentsService {
       machineOffline: machineOffline || undefined,
       mode,
       // Etapa pedida pela esteira. Hoje só o QA, que o runner não adivinha pelo cargo quando o mesmo agente revisa
-      stage: data?.stage === 'qa' ? 'qa' : undefined,
+      stage: data?.stage === 'qa' ? 'qa' : data?.stage === 'po' ? 'po' : undefined,
+      // O agente PO recebe as perguntas abertas para responder
+      waitingFor: data?.stage === 'po' ? task.waitingFor : undefined,
       // Ambiente de QA do projeto. Vem só do cadastro, nunca de texto de tarefa ou comentário
       environment: data?.stage === 'qa' ? await this.qaEnvironment(organizationId, task.project, machine?.id) : undefined,
       // Commit automático depois do QA aprovado: o DevOps commita, sem push nem deploy
@@ -777,17 +781,18 @@ export class AgentsService {
   // Pergunta do agente para a pessoa: aparece na tarefa e segura o Release até alguém responder
   async askHuman(organizationId: string, ref: string, data: any) {
     const agent = agentName(data?.agent);
-    const question = text(data?.question, 2000)?.trim();
-    if (!question) throw new BadRequestException('Informe question');
-
-    const options = Array.isArray(data?.options)
-      ? data.options.filter((option: unknown) => typeof option === 'string' && option.trim()).slice(0, 8).map((option: string) => option.trim().slice(0, 100))
-      : [];
+    const questions = normalizeQuestions(data);
 
     const id = await this.findTaskId(organizationId, ref);
+    const task = await this.prisma.task.findFirst({ where: { id, companyId: organizationId }, select: { project: true, waitingFor: true } });
+    if (!task) throw new NotFoundException('Task not found');
+    if (task.waitingFor) throw new ConflictException('A tarefa já possui uma pergunta pendente de resposta');
+
+    const stage = text(data?.stage, 20);
+    const targetPoId = await findPo(this.prisma, organizationId, task.project);
     return this.prisma.task.update({
-      where: { id },
-      data: { waitingFor: { agent, question, options, multiSelect: Boolean(data?.multiSelect), createdAt: new Date().toISOString() } },
+      where: { id, companyId: organizationId },
+      data: { waitingFor: waitingFor(questions, { agent, stage, authorId: agentUsers[agent]?.id, authorName: agentUsers[agent]?.name, targetPoId }) },
       include: taskInclude,
     });
   }
@@ -980,6 +985,55 @@ export class AgentsService {
     if (!(await this.isMember(organizationId, userId))) throw new NotFoundException('Organization not found');
   }
 
+  async escalateToHuman(organizationId: string, taskId: string) {
+    const task = await this.prisma.task.findFirst({ where: { id: taskId, companyId: organizationId }, select: { waitingFor: true } });
+    if (!task || task.waitingFor === null) return null;
+
+    return this.prisma.task.update({
+      where: { id: taskId, companyId: organizationId },
+      data: { waitingFor: { ...(task.waitingFor as object), escalatedToHuman: true } },
+      include: taskInclude,
+    });
+  }
+
+  // Fim da execução do agente PO: respondeu com fonte para todas as perguntas ou a decisão sobe para a pessoa
+  async finishPo(organizationId: string, data: any) {
+    const taskId = text(data?.taskId, 60);
+    const agent = agentNames.includes(data?.agent) ? data.agent : undefined;
+    if (!taskId || !agent) return null;
+
+    const task = await this.prisma.task.findFirst({ where: { id: taskId, companyId: organizationId } });
+    if (!task || task.waitingFor === null) return null;
+
+    const tokens = Number.isInteger(data.tokens) && data.tokens > 0 ? data.tokens : 0;
+    if (tokens) await this.prisma.task.update({ where: { id: task.id }, data: { tokensUsed: { increment: tokens } } });
+
+    const waiting = task.waitingFor as any;
+    const questions = Array.isArray(waiting.questions) ? waiting.questions : [];
+    const answers = Array.isArray(data.answers) ? data.answers.map((item: unknown) => text(item, 2000)?.trim() || '') : [];
+    const source = text(data.source, 200)?.trim();
+    const answered = data.exitCode === 0 && !data.stopped && !data.escalate && source && questions.length > 0 && answers.length === questions.length && answers.every(Boolean);
+
+    let content = 'Não encontrei a resposta nas fontes do projeto. A decisão subiu para a pessoa responsável.';
+    let metadata: any = commentMetadata(agent, data);
+    if (answered) {
+      const items = answerItems(questions, answers);
+      content = answerHtml(items, source);
+      metadata = { ...metadata, poAnswer: { answeredBy: 'agent', source, items } };
+    }
+
+    await this.prisma.taskComment.create({
+      data: { taskId: task.id, userId: agentUsers[agent].id, content: answered ? content : toHtml(content), metadata },
+    });
+    await this.prisma.task.update({
+      where: { id: task.id, companyId: organizationId },
+      data: { waitingFor: answered ? Prisma.DbNull : { ...waiting, escalatedToHuman: true } },
+    });
+
+    const updated = await this.prisma.task.findFirst({ where: { id: task.id, companyId: organizationId }, include: taskInclude });
+    return { task: updated, resume: answered ? { agent: waiting.agent, stage: waiting.stage, comment: answerText(answerItems(questions, answers)) } : null };
+  }
+
   async finishTask(organizationId: string, data: any) {
     const taskId = text(data?.taskId, 60);
     if (!taskId) return null;
@@ -996,7 +1050,8 @@ export class AgentsService {
     if (data.stopped && task.status === 'in-progress') {
       await this.prisma.task.update({ where: { id: task.id }, data: { status: 'todo' } });
     }
-    if (data.exitCode === 0 && data.agent !== 'antigravity' && data.mode !== 'comment') {
+    // Com pergunta aberta a tarefa espera a resposta e não segue para a revisão
+    if (data.exitCode === 0 && data.agent !== 'antigravity' && data.mode !== 'comment' && !task.waitingFor) {
       // A revisão vai para o Antigravity só quando a organização usa esse agente
       const hasReviewer = (await this.enabledAgents(organizationId)).includes('antigravity');
       await this.prisma.task.update({
@@ -1006,7 +1061,7 @@ export class AgentsService {
     }
 
     // Spec do agente substitui a descrição e guarda a anterior
-    const spec = data.stage === 'spec' && data.exitCode === 0 && !data.stopped ? text(data.spec, 30000)?.trim() : '';
+    const spec = data.stage === 'spec' && data.exitCode === 0 && !data.stopped && !task.waitingFor ? text(data.spec, 30000)?.trim() : '';
     if (spec && agentUser) {
       await this.prisma.task.update({
         where: { id: task.id, companyId: organizationId },

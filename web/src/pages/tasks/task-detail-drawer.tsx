@@ -20,7 +20,7 @@ import {
   MessageCircleQuestion,
   CalendarDays,
 } from 'lucide-react';
-import { TaskCardProps, TaskComment, TaskStatus, TaskType, PRIORITY_CONFIG, STATUS_CONFIG, TASK_TYPE_CONFIG } from './tasks-data';
+import { TaskCardProps, TaskComment, TaskStatus, TaskType, PRIORITY_CONFIG, STATUS_CONFIG, TASK_TYPE_CONFIG, waitingQuestions } from './tasks-data';
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { RichEditor } from '../../components/ui/rich-editor';
 import { RichText, toEditorHtml } from '../../components/ui/rich-text';
@@ -153,6 +153,7 @@ export function TaskDetailDrawer({
   const [editedDescription, setEditedDescription] = useState('');
 
   const [isSignalOpen, setIsSignalOpen] = useState(false);
+  const [signalHeader, setSignalHeader] = useState('');
   const [signalQuestion, setSignalQuestion] = useState('');
   const [signalOptions, setSignalOptions] = useState('');
   const [signalMulti, setSignalMulti] = useState(false);
@@ -429,12 +430,12 @@ export function TaskDetailDrawer({
   }
 
   // A resposta vira comentário e chama de volta o agente que perguntou
-  async function handleAnswer(answer: string) {
+  async function handleAnswer(answers: string[]) {
     if (!displayTask?.waitingFor || isSubmittingComment) return;
 
     setIsSubmittingComment(true);
     try {
-      await addComment(displayTask.id, answer, displayTask.waitingFor.agent);
+      await addComment(displayTask.id, answers.join('\n'), displayTask.waitingFor.agent, answers);
     } finally {
       setIsSubmittingComment(false);
     }
@@ -443,8 +444,15 @@ export function TaskDetailDrawer({
   async function handleSignalPo() {
     if (!displayTask || !signalQuestion.trim()) return;
 
-    const options = signalOptions.split(/[\n,]/).map((option) => option.trim()).filter(Boolean);
-    await askPo(displayTask.id, { question: signalQuestion.trim(), options, multiSelect: signalMulti });
+    // Cada linha é "Rótulo: consequência" ou só "Rótulo". De 2 a 4 linhas vão com consequência, as demais só com o rótulo
+    const lines = signalOptions.split('\n').map((line) => line.trim()).filter(Boolean);
+    const options = lines.map((line) => {
+      const [label, ...rest] = line.split(':');
+      const description = rest.join(':').trim();
+      return lines.length >= 2 && lines.length <= 4 ? { label: label.trim(), description: description || undefined } : label.trim();
+    });
+    await askPo(displayTask.id, { header: signalHeader.trim() || undefined, question: signalQuestion.trim(), options, multiSelect: signalMulti });
+    setSignalHeader('');
     setSignalQuestion('');
     setSignalOptions('');
     setSignalMulti(false);
@@ -655,17 +663,13 @@ export function TaskDetailDrawer({
                       <MessageCircleQuestion size={14} />
                       {displayTask.waitingFor.agent ? agentProfile(displayTask.waitingFor.agent).name : displayTask.waitingFor.authorName || 'A equipe'} está aguardando você
                     </div>
-                    <p className='text-sm text-zinc-800 dark:text-zinc-200'>
-                      {displayTask.waitingFor.question}
-                    </p>
-                    {displayTask.waitingFor.options && displayTask.waitingFor.options.length > 0 && (
-                      <OptionList
-                        options={displayTask.waitingFor.options}
-                        multiSelect={displayTask.waitingFor.multiSelect}
-                        disabled={isSubmittingComment}
-                        onConfirm={(selected) => handleAnswer(selected.join(', '))}
-                      />
-                    )}
+                    <OptionList
+                      key={displayTask.waitingFor.createdAt}
+                      questions={waitingQuestions(displayTask.waitingFor)}
+                      recommended={!!displayTask.waitingFor.agent}
+                      disabled={isSubmittingComment}
+                      onConfirm={handleAnswer}
+                    />
                     <p className='text-xs text-zinc-500'>
                       Ou responda com texto abaixo{displayTask.waitingFor.agent ? ` acionando ${agentProfile(displayTask.waitingFor.agent).name}` : ''}.
                     </p>
@@ -723,6 +727,13 @@ export function TaskDetailDrawer({
                     {isSignalOpen && (
                       <div className='space-y-2 border-t border-zinc-200 dark:border-zinc-800 pt-2.5'>
                         <input
+                          value={signalHeader}
+                          maxLength={40}
+                          onChange={(e) => setSignalHeader(e.target.value)}
+                          placeholder='Título curto (opcional)'
+                          className='w-full h-8 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg px-2.5 text-sm text-zinc-800 dark:text-zinc-200 placeholder:text-zinc-400 outline-none focus:border-blue-500'
+                        />
+                        <input
                           value={signalQuestion}
                           onChange={(e) => setSignalQuestion(e.target.value)}
                           placeholder='Dúvida ou decisão para o Product Owner'
@@ -732,7 +743,7 @@ export function TaskDetailDrawer({
                           rows={2}
                           value={signalOptions}
                           onChange={(e) => setSignalOptions(e.target.value)}
-                          placeholder='Opções de resposta, uma por linha ou separadas por vírgula (opcional)'
+                          placeholder='Opções, uma por linha: Rótulo: consequência (opcional)'
                           className='w-full bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg p-2.5 text-sm text-zinc-800 dark:text-zinc-200 placeholder:text-zinc-400 outline-none focus:border-blue-500 resize-none'
                         />
                         <div className='flex items-center justify-between gap-2'>
@@ -772,6 +783,11 @@ export function TaskDetailDrawer({
                             {c.trace?.model && (
                               <span className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium ${modelTagClass(c.trace.model)}`}>
                                 {c.trace.model}
+                              </span>
+                            )}
+                            {c.metadata?.poAnswer && (
+                              <span className='shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium bg-blue-50 dark:bg-blue-950/30 text-blue-600 dark:text-blue-400'>
+                                {c.metadata.poAnswer.answeredBy === 'agent' ? `Respondido pelo Agente PO${c.metadata.poAnswer.source ? ` (${c.metadata.poAnswer.source})` : ''}` : 'Decisão do PO'}
                               </span>
                             )}
                           </div>

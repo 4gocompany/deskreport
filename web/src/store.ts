@@ -85,6 +85,7 @@ export type Project = {
   completion_percentage?: number;
   remote?: string | null;
   defaultMachineId?: string | null;
+  productOwnerId?: string | null;
   locations?: { machineId: string; path: string; machine?: { id: string; name: string } }[];
 };
 export type Team = {

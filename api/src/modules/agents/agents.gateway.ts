@@ -131,9 +131,14 @@ export class AgentsGateway implements OnGatewayConnection {
     const organizationId = client.data.organizationId;
     // A classificação da spec é gravada antes da próxima etapa, para o implementador sair com modelo e orçamento certos
     if (data?.classification) await this.agentsService.saveClassification(organizationId, { ...data.classification, taskId: data.taskId });
+    if (data?.stage === 'po') {
+      await this.poFinished(organizationId, data);
+      return;
+    }
     const task = await this.agentsService.finishTask(organizationId, data);
     if (task) this.server.to(uiRoom(organizationId)).emit('task:updated', task);
-    if (task && data?.exitCode === 0 && !data?.stopped) await this.nextStage(organizationId, task.id, data);
+    // Com pergunta aberta a esteira espera a resposta do Product Owner
+    if (task && data?.exitCode === 0 && !data?.stopped && !task.waitingFor) await this.nextStage(organizationId, task.id, data);
     // A etapa acabou: a próxima pode mencionar de novo os mesmos agentes
     if (task) delete this.handoffs[`${task.id}:${data.agent}`];
 
@@ -145,6 +150,33 @@ export class AgentsGateway implements OnGatewayConnection {
       contextLimit: data?.contextLimit,
     });
     if (status) this.server.to(uiRoom(organizationId)).emit('agent:status', status);
+  }
+
+  // O agente PO respondeu: quem perguntou é retomado com as respostas. Sem resposta, a pergunta sobe para a pessoa
+  private async poFinished(organizationId: string, data: any) {
+    const result = await this.agentsService.finishPo(organizationId, data);
+    if (result?.task) this.emitTask(organizationId, 'task:updated', result.task);
+    if (result?.task && result.resume?.agent) {
+      await this.dispatchTask(organizationId, result.task.id, { agent: result.resume.agent, stage: result.resume.stage === 'qa' ? 'qa' : undefined, comment: result.resume.comment, auto: true }).catch(() => null);
+    }
+
+    const status = this.agentsService.saveStatus(organizationId, { agent: data?.agent, state: 'idle', tokens: data?.tokens, contextTokens: data?.contextTokens, contextLimit: data?.contextLimit });
+    if (status) this.server.to(uiRoom(organizationId)).emit('agent:status', status);
+  }
+
+  // Pergunta nova com agente como Product Owner: aciona o agente PO e, se não der, a pergunta sobe para a pessoa
+  async askPo(organizationId: string, task: any) {
+    const waiting = task?.waitingFor;
+    const poAgent = typeof waiting?.targetPoId === 'string' && waiting.targetPoId.startsWith('agent-user-') ? waiting.targetPoId.replace('agent-user-', '') : '';
+    if (!poAgent) return task;
+
+    // O próprio PO não responde a pergunta que ele abriu
+    const result = poAgent === waiting.agent ? null : await this.dispatchTask(organizationId, task.id, { agent: poAgent, stage: 'po', auto: true }).catch(() => null);
+    if (result && !result.machineOffline) return task;
+
+    const escalated = await this.agentsService.escalateToHuman(organizationId, task.id);
+    if (escalated) this.emitTask(organizationId, 'task:updated', escalated);
+    return escalated || task;
   }
 
   // Camada 2: a máquina devolve a triagem feita pelo harness local mais barato

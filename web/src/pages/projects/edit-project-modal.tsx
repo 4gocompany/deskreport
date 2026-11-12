@@ -5,6 +5,7 @@ import { useTenantStore } from '../../store';
 import { useTenant } from '../../hooks/useTenant';
 import { apiBase } from '../../api/fetcher';
 import { useMachines } from '../../hooks/useMachines';
+import { agentProfile, useAgentsStore } from '../tasks/use-agents';
 
 interface EditProjectModalProps {
   project: any | null;
@@ -24,13 +25,17 @@ export function EditProjectModal({ project, onClose, onSuccess }: EditProjectMod
   const [autoCommitAfterQa, setAutoCommitAfterQa] = useState(false);
   const [environments, setEnvironments] = useState<any[]>([]);
 
-  const { fetchProjects, teams, fetchTeams } = useTenantStore();
+  const [productOwnerId, setProductOwnerId] = useState('');
+
+  const { fetchProjects, teams, fetchTeams, members, fetchMembers } = useTenantStore();
+  const agents = useAgentsStore((state) => state.agents);
   const { company_id } = useTenant();
   const machines = useMachines(company_id);
 
   useEffect(() => {
     if (company_id) {
       fetchTeams(company_id);
+      fetchMembers(company_id);
     }
   }, [company_id]);
 
@@ -44,8 +49,10 @@ export function EditProjectModal({ project, onClose, onSuccess }: EditProjectMod
       setEndDate(project.endDate ? project.endDate.slice(0, 10) : '');
       setSelectedTeamIds(project.teams?.map((t: any) => t.teamId) || []);
       setAutoCommitAfterQa(project.autoCommitAfterQa === true);
+      setProductOwnerId(project.productOwnerId || '');
       setEnvironments(project.environments || []);
     } else {
+      setProductOwnerId('');
       setName('');
       setPickedFolder('');
       setDefaultMachineId('');
@@ -91,6 +98,7 @@ export function EditProjectModal({ project, onClose, onSuccess }: EditProjectMod
         status,
         endDate: endDate || null,
         autoCommitAfterQa,
+        productOwnerId: productOwnerId || null,
         teamIds: selectedTeamIds,
       };
 
@@ -174,6 +182,29 @@ export function EditProjectModal({ project, onClose, onSuccess }: EditProjectMod
               onChange={(e) => setEndDate(e.target.value)}
               className='w-full bg-zinc-50 dark:bg-zinc-800/50 border border-zinc-200 dark:border-zinc-700 rounded-lg px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-medium'
             />
+          </div>
+
+          <div className='space-y-1.5'>
+            <label className='text-[10px] font-black  text-zinc-400'>Product Owner</label>
+            <select
+              value={productOwnerId}
+              onChange={(e) => setProductOwnerId(e.target.value)}
+              className='w-full bg-zinc-50 dark:bg-zinc-800/50 border border-zinc-200 dark:border-zinc-700 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-500 transition-all font-medium'
+            >
+              <option value=''>Qualquer membro da organização (padrão)</option>
+              {members
+                .filter((member) => !member.userId?.startsWith('agent-user-'))
+                .map((member) => (
+                  <option key={member.userId} value={member.userId}>
+                    {member.user?.name || member.user?.email}
+                  </option>
+                ))}
+              {agents.map(({ agent }) => (
+                <option key={agent} value={`agent-user-${agent}`}>
+                  {agentProfile(agent).name} (Agente de Produto)
+                </option>
+              ))}
+            </select>
           </div>
 
           <div className='space-y-1.5'>

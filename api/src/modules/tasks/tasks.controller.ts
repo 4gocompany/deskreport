@@ -63,13 +63,18 @@ export class TasksController {
         @Body() data: any
     ) {
         const content = typeof data?.content === 'string' ? data.content : '';
-        let task = await this.tasksService.addComment(id, orgId, userId, content);
+        const { task: saved, askedBy, askedStage, answer } = await this.tasksService.addComment(id, orgId, userId, content, data?.answers);
+        let task = saved;
         this.agentsGateway.emitTask(orgId, 'task:updated', task);
 
-        const agents = agentNames.filter((agent) => agent === data?.agent || new RegExp(`@${agent}\\b`, 'i').test(content));
+        // Quem fez a pergunta é retomado com a resposta
+        const agents = agentNames.filter((agent) => agent === data?.agent || agent === askedBy || new RegExp(`@${agent}\\b`, 'i').test(content));
         for (const agent of agents) {
+            // Quem perguntou segue a própria etapa. Os demais só comentam
+            const resume = agent === askedBy && askedStage !== 'comment';
+            const job = resume ? { stage: askedStage === 'qa' ? 'qa' : undefined } : { mode: 'comment' };
             const dispatched = await this.agentsGateway
-                .dispatchTask(orgId, id, { agent, mode: 'comment', comment: content, projectPath: data?.projectPath })
+                .dispatchTask(orgId, id, { agent, ...job, comment: answer, projectPath: data?.projectPath })
                 .catch(() => null);
             if (dispatched && task) task = { ...task, assignees: dispatched.task.assignees };
         }
@@ -81,7 +86,7 @@ export class TasksController {
     async ask(@ActiveOrg() orgId: string, @ActiveUser() userId: string, @Param('id') id: string, @Body() data: any) {
         const task = await this.tasksService.askPo(id, orgId, userId, data);
         this.agentsGateway.emitTask(orgId, 'task:updated', task);
-        return task;
+        return this.agentsGateway.askPo(orgId, task);
     }
 
     @Delete(':id')

@@ -10,7 +10,15 @@ export type TaskComment = {
   taskId: string;
   userId: string;
   content: string;
-  metadata?: { agent?: string; harness?: string; model?: string; exitCode?: number; error?: boolean; stage?: string } | null;
+  metadata?: {
+    agent?: string;
+    harness?: string;
+    model?: string;
+    exitCode?: number;
+    error?: boolean;
+    stage?: string;
+    poAnswer?: { answeredBy: 'human' | 'agent'; source?: string; items: { header?: string; question: string; answer: string }[] };
+  } | null;
   createdAt: string | Date;
   user: {
     id?: string;
@@ -20,14 +28,27 @@ export type TaskComment = {
 }
 
 // Pergunta aberta por um agente ou pela equipe: enquanto existir, a tarefa não vai para Release
+export type WaitingOption = { label: string; description?: string };
+export type WaitingQuestion = { header?: string; question: string; options: WaitingOption[]; multiSelect?: boolean };
+
 export type TaskWaitingFor = {
   agent?: string;
+  stage?: string;
   authorId?: string;
   authorName?: string;
+  targetPoId?: string | null;
+  escalatedToHuman?: boolean;
+  questions?: WaitingQuestion[];
   question: string;
   options?: string[];
   multiSelect?: boolean;
   createdAt: string;
+}
+
+// Pergunta aberta antes do lote não tem questions: vira uma pergunta só
+export function waitingQuestions(waitingFor: TaskWaitingFor): WaitingQuestion[] {
+  if (waitingFor.questions?.length) return waitingFor.questions;
+  return [{ question: waitingFor.question, options: (waitingFor.options || []).map((label) => ({ label })), multiSelect: waitingFor.multiSelect }];
 }
 
 export type TaskCardProps = {
