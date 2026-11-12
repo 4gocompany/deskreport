@@ -1485,6 +1485,7 @@ async function runTask(task) {
   // Fotografia do repositório antes do agente: o comentário final lista só o que esta execução mexeu
   const startedAt = Date.now();
   const statusBefore = gitStatusLines(cwd);
+  const headBefore = gitHead(cwd);
   const denials = [];
 
   const stream = task.agent === 'claude';
@@ -1626,7 +1627,8 @@ async function runTask(task) {
       switchProvider(task);
       return;
     }
-    const touchedFiles = changedSince(cwd, statusBefore, startedAt);
+    // O engenheiro pode commitar ao terminar: o que entrou em commit nesta execução também conta como entrega
+    const touchedFiles = changedSince(cwd, statusBefore, startedAt).concat(stage === 'implement' ? committedSince(cwd, headBefore) : []);
     // Fatos conferidos pelo runner, para o resumo do agente não esconder bloqueio nem trabalho que não aconteceu
     const facts = [];
     if (denials.length > 0 && task.agent === 'claude' && !claudeSandboxReady()) {
@@ -2316,7 +2318,7 @@ function teamNote(agent) {
     'Time de agentes desta máquina:',
     ...team,
     [
-      'A esteira da tarefa é: especificação (Arquitetura), implementação (Engenharia), revisão (Code Review), correção (Engenharia), nova revisão, e por fim commit e deploy (DevOps).',
+      'A esteira da tarefa é: especificação (Arquitetura), implementação com commit (Engenharia), revisão (Code Review), correção em novo commit (Engenharia), nova revisão, e por fim deploy (DevOps).',
       'Ao terminar a sua etapa, termine o resumo mencionando com @ o agente responsável pela próxima etapa e diga o que ele deve fazer, por exemplo: @claude implementar a spec aprovada.',
       'O agente mencionado é acionado automaticamente. Use @ só para quem deve agir agora, nunca para citar alguém de passagem.',
       'Se a tarefa foi concluída por completo ou depende de uma decisão de pessoa, não mencione nenhum agente e explique o que falta.',
@@ -2376,6 +2378,23 @@ function changedSince(cwd, before, startedAt) {
       }
     })
     .map((line) => line.trim());
+}
+
+function gitHead(cwd) {
+  try {
+    return gitOutput(cwd, ['rev-parse', 'HEAD']);
+  } catch {
+    return '';
+  }
+}
+
+function committedSince(cwd, head) {
+  if (!head) return [];
+  try {
+    return gitOutput(cwd, ['diff', '--name-only', head, 'HEAD', '--', '.']).split('\n').filter(Boolean);
+  } catch {
+    return [];
+  }
 }
 
 // Pasta sem alterações pendentes ainda não tem o que revisar
@@ -2485,12 +2504,13 @@ function taskPrompt(task, cwd) {
       request,
       [
         'Você é o revisor do time. Rode `git status -s -- .` e `git diff` nesta pasta e revise as alterações.',
+        'Se a implementação já foi commitada, revise também os commits desta tarefa com `git log` e `git show`.',
         'Valide se o código atende a descrição da tarefa e os comentários acima.',
         'Confira se o diff segue o padrão do projeto (Prettier, lint, estilo e visual dos arquivos vizinhos) e se mexeu só no que a tarefa pede.',
         'Confira as regras globais: nenhum travessão, nenhum Set do JavaScript, isolamento multi-tenant em toda query e rota (companyId ou organizationId), sem segredos em log ou resposta, e código simples sem camadas a mais.',
         'Não altere arquivos e não faça commit.',
         'Responda em português com um parecer objetivo: aprovado ou não, e a lista de problemas com arquivo e linha. Esse texto vira o comentário da tarefa.',
-        'Reprovado volta para a Engenharia corrigir, aprovado segue para o DevOps fazer commit e deploy.',
+        'Reprovado volta para a Engenharia corrigir em um novo commit, aprovado segue para o DevOps.',
       ].join('\n'),
     ].filter(Boolean).join('\n\n');
   }
@@ -2520,8 +2540,8 @@ function finalRules(task, stage) {
       others,
     ];
   }
-  if (task.commit) return ['QA aprovado: faça o commit só dos arquivos desta tarefa, seguindo a regra de commits do projeto. Não faça push nem deploy.', others];
-  return ['Não faça commit nem push: o commit vem depois da revisão e do teste.', others];
+  if (task.commit) return ['QA aprovado: faça o commit do que ainda estiver pendente desta tarefa, seguindo a regra de commits do projeto. Não faça push nem deploy.', others];
+  return ['Ao terminar, faça o commit só dos arquivos desta tarefa, seguindo a regra de commits do projeto. Correção pedida pela revisão entra em um novo commit. Não faça push nem deploy.', others];
 }
 
 // Registra o MCP deskreport nos agentes habilitados e tira dos desabilitados
