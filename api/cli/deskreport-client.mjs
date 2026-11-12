@@ -36,6 +36,7 @@ const roleCatalog = {
   devops: ['DevOps e Infraestrutura', 'Scripts de build, deploys, migrations de banco, Docker e pacotes de release.'],
   documentation: ['Documentação Técnica', 'Cria e atualiza READMEs, OpenAPI/Swagger, tutoriais e notas de versão.'],
   support: ['Suporte Técnico L3', 'Analisa logs de erro em produção, investiga chamados e aponta correções.'],
+  product: ['Product Owner (Produto)', 'Responde dúvidas de escopo com base em VISAO.md, BACKLOG.md e specs do projeto, ou escala para humano.'],
 };
 const roleNames = Object.keys(roleCatalog);
 const defaultRoles = { antigravity: ['architecture', 'review'], claude: ['engineering', 'devops'], opencode: ['qa', 'documentation'] };
@@ -847,6 +848,12 @@ function rolesMarkdown() {
     'Nesta máquina os agentes possuem as seguintes atribuições configuradas via DeskReport:',
     '',
     items.join('\n\n') || 'Nenhum cargo configurado.',
+    '',
+    '## Commits',
+    '',
+    '- O agente de Engenharia faz commit ao terminar a tarefa, só dos arquivos dela, sem esperar revisão.',
+    '- Se a entrega não passar no code review (de agente ou humano), a correção entra em novos commits.',
+    '- Push e deploy só quando uma pessoa pedir.',
     rolesEnd,
   ].join('\n');
 }
@@ -1110,10 +1117,22 @@ function cleanSummary(raw) {
   return filtered.join('\n').trim();
 }
 
+// Resposta do agente PO: ANSWERS em JSON com a fonte e as respostas, ou ESCALATE com o motivo
+function poResult(stage, sections) {
+  if (stage !== 'po' || !sections) return {};
+  if (sections.escalate !== undefined) return { escalate: sections.escalate || 'sem motivo' };
+  try {
+    const { source, answers } = JSON.parse(sections.answers);
+    return { source: String(source || ''), answers: Array.isArray(answers) ? answers.map(String) : [] };
+  } catch {
+    return {};
+  }
+}
+
 function finish(task, exitCode, summary, touchedFiles = [], stopped = false, classification = null, sections = null, stage = null) {
   delete running[task.agent];
   saveState();
-  socket.emit('machine:task-finished', { taskId: task.taskId, agent: task.agent, mode: task.mode, handoff: Boolean(task.comment), exitCode, summary, touchedFiles, stopped, tokens: task.tokens, contextTokens: task.contextTokens, contextLimit: task.contextLimit, model: task.model, classification, stage: stageRole(stage, task.agent) === 'qa' ? 'qa' : stage, spec: sections?.spec, comment: sections?.comment, changelog: sections?.changelog, qaWithoutEnvironment: task.qaWithoutEnvironment || undefined });
+  socket.emit('machine:task-finished', { taskId: task.taskId, agent: task.agent, mode: task.mode, handoff: Boolean(task.comment), exitCode, summary, touchedFiles, stopped, tokens: task.tokens, contextTokens: task.contextTokens, contextLimit: task.contextLimit, model: task.model, classification, stage: stageRole(stage, task.agent) === 'qa' ? 'qa' : stage, spec: sections?.spec, comment: sections?.comment, changelog: sections?.changelog, ...poResult(stage, sections), qaWithoutEnvironment: task.qaWithoutEnvironment || undefined });
   notify(`${agentLabels[task.agent]} ${exitCode === 0 ? 'terminou' : 'parou'}: ${task.title}`);
   agents[task.agent] = { state: 'idle', action: exitCode === 0 ? 'Concluído' : `Parou com código ${exitCode}`, model: task.model };
   broadcast();
@@ -1498,7 +1517,8 @@ async function runTask(task) {
     raiseAlert(task.agent, level, alert);
     stop('Cota');
   }
-  const timer = setTimeout(() => stop(`Passou de ${TASK_TIMEOUT_MS / 60_000} min sem terminar`), TASK_TIMEOUT_MS);
+  const timeoutMs = stage === 'po' ? 5 * 60_000 : TASK_TIMEOUT_MS;
+  const timer = setTimeout(() => stop(`Passou de ${timeoutMs / 60_000} min sem terminar`), timeoutMs);
 
   function show(text) {
     // Cabe a resposta final inteira (spec de até 30.000 caracteres mais COMMENT e CHANGELOG). Com 4.000 o marcador SPEC: ficava de fora
@@ -1630,7 +1650,7 @@ async function runTask(task) {
 
 // Quem não implementa nunca escreve na pasta, e o QA nunca escreve, mesmo quando o agente também tem cargo de Engenharia
 function readOnlyStage(task, stage) {
-  if (stage === 'qa' || stage === 'review' || stage === 'spec') return true;
+  if (stage === 'qa' || stage === 'review' || stage === 'spec' || stage === 'po') return true;
   return stage === 'comment' && !canEdit(task.agent);
 }
 
@@ -2155,11 +2175,15 @@ function stageRole(stage, agent) {
 
 // Cargo cujo modelo vale na etapa. Na revisão o prompt não tem cargo de seções, mas o modelo é o de Code Review
 function stageModelRole(stage, agent) {
+  if (stage === 'po') return 'product';
   return stage === 'review' ? 'review' : stageRole(stage, agent);
 }
 
+const poSections = ['ANSWERS:', '{ "source": "arquivo:linha", "answers": ["resposta 1", "resposta 2"] }', 'COMMENT:', '(curto: de onde vieram as respostas)'].join('\n');
+
 function sectionsNote(stage, agent) {
   if (stage === 'comment') return '';
+  if (stage === 'po') return `Formato da resposta final, em seções com cada marcador sozinho numa linha. Se não puder responder tudo, use apenas o marcador ESCALATE: sozinho numa linha e o motivo curto na linha seguinte:\n${poSections}`;
   const role = stageRole(stage, agent);
   const lines = role ? config.rolePrompts?.[role] || rolePromptDefaults[role] : reviewSections;
   return `Formato da resposta final, em seções com cada marcador sozinho numa linha:\n${lines}`;
@@ -2319,7 +2343,7 @@ function parseSections(raw) {
   const sections = {};
   let current = '';
   for (const line of raw.split('\n')) {
-    const marker = line.trim().match(/^(SPEC|COMMENT|CHANGELOG):$/);
+    const marker = line.trim().match(/^(SPEC|COMMENT|CHANGELOG|ANSWERS|ESCALATE):$/);
     if (marker) {
       current = marker[1].toLowerCase();
       sections[current] = '';
@@ -2375,6 +2399,7 @@ function canEdit(agent) {
 
 // Etapa da esteira pelo cargo do agente nesta máquina, e não pelo nome dele
 function taskStage(task, cwd) {
+  if (task.stage === 'po') return 'po';
   if (task.mode === 'comment') return 'comment';
   // A esteira pede o QA direto, mesmo para quem também revisa
   if (task.stage === 'qa') return 'qa';
@@ -2418,6 +2443,22 @@ function taskPrompt(task, cwd) {
     ].filter(Boolean).join('\n\n');
   }
 
+  if (stage === 'po') {
+    const questions = task.waitingFor?.questions || [];
+    const list = questions.map((q, i) => `${i + 1}. ${q.header ? `[${q.header}] ` : ''}${q.question}\n${(q.options || []).map((o) => `   - ${o.label}${o.description ? `: ${o.description}` : ''}`).join('\n')}`).join('\n');
+    return [
+      `Você é o Product Owner da tarefa do DeskReport:\n${title}`,
+      description,
+      `Perguntas abertas:\n${external(list)}`,
+      [
+        'Leia apenas documentos e specs do repositório (VISAO.md, BACKLOG.md, README.md, SPEC-*.md e código relacionado). Não altere arquivos.',
+        'Só responda se todas as perguntas tiverem resposta clara documentada nas fontes do projeto, citando o arquivo e a linha.',
+        'Se qualquer pergunta exigir decisão nova não documentada, não adivinhe: responda com o marcador ESCALATE: e o motivo curto.',
+        `Se achou todas as respostas, responda com ANSWERS: em JSON com exatamente ${questions.length} resposta(s), na ordem das perguntas, e um COMMENT: curto. Cada resposta deve ser o texto de uma das opções ou uma frase curta.`,
+      ].join('\n'),
+    ].filter(Boolean).join('\n\n');
+  }
+
   if (stage === 'spec') {
     return [
       `Especificação da tarefa do DeskReport:\n${title}`,
@@ -2429,6 +2470,7 @@ function taskPrompt(task, cwd) {
         'Você é o arquiteto do time e esta tarefa ainda não tem alterações no código.',
         'Leia o código desta pasta e escreva a especificação: o que muda, arquivos e rotas afetados, modelo de dados e regras de negócio.',
         'Não implemente a tarefa e não faça commit.',
+        'Se houver dúvida de produto ou decisão de escopo que mude o comportamento, não assuma: chame deskreport_ask_human reunindo de 1 a 4 perguntas na mesma chamada (a opção recomendada em primeiro lugar, cada opção com label e description explicando a consequência) e encerre respondendo apenas COMMENT: avisando que aguardará a resposta do Product Owner, sem emitir SPEC: ainda.',
         'Responda em português. A spec completa vai na seção SPEC e substitui a descrição da tarefa.',
       ].join('\n'),
     ].filter(Boolean).join('\n\n');
@@ -2630,15 +2672,33 @@ const mcpTools = [
   },
   {
     name: 'deskreport_ask_human',
-    description: 'Pergunta algo para a pessoa na tarefa e para de trabalhar até ela responder. A tarefa não vai para Release enquanto a pergunta estiver aberta',
+    description: 'Pergunta de 1 a 4 coisas ao Product Owner da tarefa numa só chamada e para de trabalhar até a resposta. A tarefa não vai para Release enquanto a pergunta estiver aberta',
     inputSchema: schema(
       {
         task: taskRef,
-        question: { type: 'string' },
-        options: { type: 'array', items: { type: 'string' }, description: 'Respostas prontas para a pessoa escolher com um clique, até 8' },
-        multiSelect: { type: 'boolean', description: 'Permite selecionar mais de uma opção na resposta' },
+        questions: {
+          type: 'array',
+          description: 'De 1 a 4 perguntas. Prefira esta forma',
+          items: {
+            type: 'object',
+            properties: {
+              header: { type: 'string', description: 'Rótulo curto da pergunta, até 40 caracteres' },
+              question: { type: 'string' },
+              options: {
+                type: 'array',
+                description: 'De 2 a 4 opções, a recomendada em primeiro. Vazio para pergunta aberta',
+                items: { type: 'object', properties: { label: { type: 'string' }, description: { type: 'string', description: 'Consequência da escolha' } }, required: ['label'] },
+              },
+              multiSelect: { type: 'boolean', description: 'Permite selecionar mais de uma opção' },
+            },
+            required: ['question'],
+          },
+        },
+        question: { type: 'string', description: 'Forma antiga, uma pergunta só' },
+        options: { type: 'array', items: { type: 'string' }, description: 'Forma antiga: respostas prontas, até 8' },
+        multiSelect: { type: 'boolean', description: 'Forma antiga: permite selecionar mais de uma opção' },
       },
-      ['task', 'question'],
+      ['task'],
     ),
   },
   {
@@ -2686,7 +2746,7 @@ function callTool(name, args, agent) {
   if (name === 'deskreport_create_task') return mcpApi('POST', '/agents/mcp/tasks', { ...fields, agent });
   if (name === 'deskreport_update_task') return mcpApi('PATCH', taskPath, fields);
   if (name === 'deskreport_comment_task') return mcpApi('POST', `${taskPath}/comments`, { content: fields.content, agent, model: process.env.DESKREPORT_MODEL || config.models?.[agent] || '', stage: process.env.DESKREPORT_STAGE || undefined });
-  if (name === 'deskreport_ask_human') return mcpApi('POST', `${taskPath}/ask`, { question: fields.question, options: fields.options, multiSelect: fields.multiSelect, agent });
+  if (name === 'deskreport_ask_human') return mcpApi('POST', `${taskPath}/ask`, { questions: fields.questions, question: fields.question, options: fields.options, multiSelect: fields.multiSelect, agent, stage: process.env.DESKREPORT_STAGE || undefined });
   if (name === 'deskreport_dispatch_task') return mcpApi('POST', `${taskPath}/dispatch`, fields);
   if (name === 'deskreport_send_agent_message') {
     return mcpApi('POST', '/agents/mcp/team/messages', { toAgent: args.toAgent, message: args.message, taskId: args.taskId, agent, projectPath: currentProject() });
