@@ -1,8 +1,16 @@
 # DeskReport
 
-Transforme cards simples em entregas testadas em produção sem queima estúpida de tokens, combinando detecção de harnesses locais (BYOH), roteamento por complexidade com tier gratuito e governança humana.
+Esteira de engenharia com agentes. Etapas, papéis e vários harnesses num fluxo só, combinando detecção de harnesses locais (BYOH), roteamento por complexidade e histórico completo por agente e modelo.
 
 Criado e mantido pela **[4Go Company](https://github.com/4gocompany)** por **[Rodrigo Andrade](https://github.com/rodriggopda)**.
+
+---
+
+## Como Funciona (Camada de Orquestração)
+
+- **Harness** (`claude`, `agy`, `opencode`, `codex`, `gemini`, `aider`): resolve como um agente trabalha no terminal e edita arquivos.
+- **Loop**: resolve como o agente insiste até acertar, sempre dentro do harness.
+- **DeskReport**: resolve quem faz o quê, em que ordem e quando uma pessoa entra no fluxo.
 
 ---
 
