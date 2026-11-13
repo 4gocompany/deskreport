@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException }
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { budgets, classifyWithJev, complexities, jevKey, routing } from './complexity';
+import { editChecklist, TaskChecklist } from './checklist';
 import { taskTypes } from './task-types';
 import { answerHtml, answerItems, answerText, cleanAnswers, findPo, normalizeQuestions, waitingFor } from './waiting';
 
@@ -117,6 +118,23 @@ export class TasksService {
             }
         });
 
+        return this.findOne(id, organizationId);
+    }
+
+    // A pessoa adiciona item, edita texto, estado e motivo. A spec continua sendo a fonte da verdade: o agente marca conflito se o item a contradiz
+    async updateChecklist(id: string, organizationId: string, userId: string, data: any) {
+        const task = await this.prisma.task.findFirst({ where: { id, companyId: organizationId }, select: { checklist: true } });
+        if (!task) throw new NotFoundException('Task not found');
+
+        const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { name: true } });
+        let checklist: TaskChecklist;
+        try {
+            checklist = editChecklist(task.checklist as unknown as TaskChecklist | null, data, user?.name || 'Pessoa');
+        } catch (error) {
+            throw new BadRequestException(error.message);
+        }
+
+        await this.prisma.task.update({ where: { id, companyId: organizationId }, data: { checklist: checklist as any } });
         return this.findOne(id, organizationId);
     }
 

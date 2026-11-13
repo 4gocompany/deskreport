@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { authClient } from '../../lib/auth-client';
-import { TaskCardProps } from './tasks-data';
+import { ChecklistItemStatus, ChecklistRole, TaskCardProps } from './tasks-data';
 import { apiBase } from '../../api/fetcher';
 
 const API_URL = apiBase + '/tasks';
@@ -24,6 +24,7 @@ interface TaskStore {
   addComment: (taskId: string, content: string, agent?: string, answers?: string[]) => Promise<void>;
   dispatchTask: (id: string, agent: string, machineId?: string) => Promise<string | null>;
   askPo: (taskId: string, payload: { header?: string; question: string; options?: (string | { label: string; description?: string })[]; multiSelect?: boolean; agent?: string }) => Promise<void>;
+  updateChecklist: (taskId: string, payload: { addItem?: { role: ChecklistRole; text: string }; updateItem?: { id: string; text?: string; status?: ChecklistItemStatus; reason?: string } }) => Promise<void>;
   stopTask: (id: string) => Promise<string | null>;
   fetchTerminal: (id: string) => Promise<string>;
   fetchTaskDiff: (id: string) => Promise<string>;
@@ -106,6 +107,15 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
       headers: { 'x-organization-id': getOrgId() },
     });
     if (error || !data) return console.error('Failed to ask PO:', error);
+    set((state) => ({ tasks: state.tasks.map((t) => (t.id === taskId ? data : t)) }));
+  },
+  updateChecklist: async (taskId, payload) => {
+    const { data, error } = await authClient.$fetch<TaskCardProps>(`${API_URL}/${taskId}/checklist`, {
+      method: 'PATCH',
+      body: payload,
+      headers: { 'x-organization-id': getOrgId() },
+    });
+    if (error || !data) return console.error('Failed to update checklist:', error);
     set((state) => ({ tasks: state.tasks.map((t) => (t.id === taskId ? data : t)) }));
   },
   stopTask: async (id) => {

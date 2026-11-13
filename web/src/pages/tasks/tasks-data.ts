@@ -17,6 +17,9 @@ export type TaskComment = {
     exitCode?: number;
     error?: boolean;
     stage?: string;
+    changelog?: string;
+    touchedFiles?: string[];
+    haltedReason?: string;
     poAnswer?: { answeredBy: 'human' | 'agent'; source?: string; items: { header?: string; question: string; answer: string }[] };
   } | null;
   createdAt: string | Date;
@@ -51,6 +54,40 @@ export function waitingQuestions(waitingFor: TaskWaitingFor): WaitingQuestion[] 
   return [{ question: waitingFor.question, options: (waitingFor.options || []).map((label) => ({ label })), multiSelect: waitingFor.multiSelect }];
 }
 
+export type ChecklistRole = 'engineering' | 'review' | 'qa' | 'devops';
+export type ChecklistItemStatus = 'pending' | 'done' | 'not_done' | 'na' | 'conflict';
+
+export type ChecklistItem = {
+  id: string;
+  role: ChecklistRole;
+  text: string;
+  status: ChecklistItemStatus;
+  reason?: string;
+  updatedBy?: string;
+  updatedAt?: string;
+}
+
+export type ExtraDelivery = {
+  id: string;
+  role: ChecklistRole;
+  agent: string;
+  text: string;
+  reason: string;
+  createdAt: string;
+}
+
+export type TaskChecklist = {
+  items: ChecklistItem[];
+  extraDeliveries: ExtraDelivery[];
+  haltedReason?: string | null;
+  updatedAt: string;
+}
+
+export function checklistProgress(checklist?: TaskChecklist | null) {
+  const items = checklist?.items || [];
+  return { total: items.length, done: items.filter((item) => item.status !== 'pending' && item.status !== 'not_done').length };
+}
+
 export type TaskCardProps = {
   id: string;
   shortId?: number;
@@ -81,6 +118,7 @@ export type TaskCardProps = {
   dueDate?: string | null;
   machineId?: string | null;
   waitingFor?: TaskWaitingFor | null;
+  checklist?: TaskChecklist | null;
   specEditedBy?: string | null;
   specEditedAt?: string | null;
 }

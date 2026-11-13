@@ -218,6 +218,18 @@ export function InboxRow({ item, companyId, selected, onSelect, onOpenTask, onTe
       );
     }
 
+    if (item.category === 'execution_error' && task?.checklist?.haltedReason && !item.comment) {
+      return (
+        <>
+          <p className='text-sm text-zinc-600 dark:text-zinc-300'>{task.checklist.haltedReason}</p>
+          <div className='flex gap-2'>
+            <Button size='sm' variant='outline' onClick={() => onOpenTask(task.id)}>Abrir tarefa</Button>
+            {runner && <Button size='sm' onClick={() => run(() => dispatch(task.id, runner))} disabled={busy}>Tentar novamente</Button>}
+          </div>
+        </>
+      );
+    }
+
     if (item.category === 'execution_error' && task) {
       const code = item.comment?.metadata?.exitCode;
       return (

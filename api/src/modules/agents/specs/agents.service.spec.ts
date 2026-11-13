@@ -74,6 +74,7 @@ describe('AgentsService', () => {
   it('atribui o agente na task ao disparar', async () => {
     prisma.task.findFirst.mockResolvedValue({ id: 't-1', title: 'T', status: 'todo', assignees: [], comments: [{ userId: 'u-1', content: 'ok', user: { name: 'Rodrigo' } }, { userId: 'agent-user-claude', content: 'feito', user: { name: 'Claude Code' } }] });
     prisma.task.update.mockResolvedValue({ id: 't-1' });
+    prisma.agentMachine.findMany.mockResolvedValue([]);
 
     const result = await service.startDispatch('t-1', 'org-1', { agent: 'claude', projectPath: 'api' });
 
@@ -87,7 +88,7 @@ describe('AgentsService', () => {
     prisma.task.update.mockResolvedValue({ id: 't-1' });
 
     expect((await service.startDispatch('t-1', 'org-1', { agent: 'antigravity', projectPath: 'api', stage: 'qa' })).stage).toBe('qa');
-    expect((await service.startDispatch('t-1', 'org-1', { agent: 'antigravity', projectPath: 'api', stage: 'review' })).stage).toBeUndefined();
+    expect((await service.startDispatch('t-1', 'org-1', { agent: 'antigravity', projectPath: 'api', stage: 'comment' })).stage).toBeUndefined();
   });
 
   it('acha o agente habilitado com o cargo nas máquinas da organização', async () => {
@@ -198,14 +199,13 @@ describe('AgentsService', () => {
     await service.finishTask('org-1', { taskId: 't-1', agent: 'claude', exitCode: 0, summary: '<script>x</script>', touchedFiles: ['M a.ts'] });
 
     expect(prisma.task.update).toHaveBeenCalledWith({
-      where: { id: 't-1' },
+      where: { id: 't-1', companyId: 'org-1' },
       data: { status: 'review', assignees: { connect: { id: 'agent-user-antigravity' } } },
     });
     expect(prisma.taskComment.create.mock.calls[0][0].data.userId).toBe('agent-user-claude');
     const content = prisma.taskComment.create.mock.calls[0][0].data.content;
     expect(content).toContain('&lt;script&gt;');
-    expect(content).toContain('[Modificado]');
-    expect(content).toContain('<code>a.ts</code>');
+    expect(prisma.taskComment.create.mock.calls[0][0].data.metadata.touchedFiles).toEqual(['M a.ts']);
   });
 
   it('sem Antigravity habilitado a task vai para revisão sem revisor', async () => {
@@ -214,7 +214,7 @@ describe('AgentsService', () => {
 
     await service.finishTask('org-1', { taskId: 't-1', agent: 'codex', exitCode: 0 });
 
-    expect(prisma.task.update).toHaveBeenCalledWith({ where: { id: 't-1' }, data: { status: 'review' } });
+    expect(prisma.task.update).toHaveBeenCalledWith({ where: { id: 't-1', companyId: 'org-1' }, data: { status: 'review' } });
     expect(prisma.taskComment.create.mock.calls[0][0].data.userId).toBe('agent-user-codex');
   });
 
@@ -271,8 +271,8 @@ describe('AgentsService', () => {
 
     await service.finishTask('org-1', { taskId: 't-1', agent: 'claude', exitCode: 1, stopped: true, tokens: 1200 });
 
-    expect(prisma.task.update).toHaveBeenCalledWith({ where: { id: 't-1' }, data: { tokensUsed: { increment: 1200 } } });
-    expect(prisma.task.update).toHaveBeenCalledWith({ where: { id: 't-1' }, data: { status: 'todo' } });
+    expect(prisma.task.update).toHaveBeenCalledWith({ where: { id: 't-1', companyId: 'org-1' }, data: { tokensUsed: { increment: 1200 } } });
+    expect(prisma.task.update).toHaveBeenCalledWith({ where: { id: 't-1', companyId: 'org-1' }, data: { status: 'todo' } });
     expect(prisma.taskComment.create.mock.calls[0][0].data.content).toContain('parada pelo usuário');
   });
 

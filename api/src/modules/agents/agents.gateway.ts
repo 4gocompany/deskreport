@@ -5,6 +5,7 @@ import { fromNodeHeaders } from 'better-auth/node';
 import { Server, Socket } from 'socket.io';
 import { auth } from '../../auth/auth';
 import { allowedOrigins } from '../../origins';
+import { nextStep, TaskChecklist } from '../tasks/checklist';
 import { AgentsService, agentNames, approved, checkProjectPath, mentionName } from './agents.service';
 
 // A autenticação é feita na conexão (chave da máquina ou sessão do navegador), por isso o guard global fica de fora
@@ -138,7 +139,11 @@ export class AgentsGateway implements OnGatewayConnection {
     const task = await this.agentsService.finishTask(organizationId, data);
     if (task) this.server.to(uiRoom(organizationId)).emit('task:updated', task);
     // Com pergunta aberta a esteira espera a resposta do Product Owner
-    if (task && data?.exitCode === 0 && !data?.stopped && !task.waitingFor) await this.nextStage(organizationId, task.id, data);
+    if (task && data?.exitCode === 0 && !data?.stopped && !task.waitingFor) {
+      const checklist = task.checklist as TaskChecklist | null;
+      if (checklist && data?.mode !== 'comment') await this.checklistStage(organizationId, task.id, checklist, data);
+      else await this.nextStage(organizationId, task.id, data);
+    }
     // A etapa acabou: a próxima pode mencionar de novo os mesmos agentes
     if (task) delete this.handoffs[`${task.id}:${data.agent}`];
 
@@ -297,6 +302,63 @@ export class AgentsGateway implements OnGatewayConnection {
     if (job.mode === 'task') this.agentsService.clearOutput(organizationId, task.id);
     this.server.to(machineRoom(organizationId)).emit('agent:dispatch', job);
     return { ...job, task };
+  }
+
+  // Tarefa com checklist: a próxima etapa sai só do estado dos itens, nunca de @menção nem de arquivos alterados
+  async checklistStage(organizationId: string, taskId: string, checklist: TaskChecklist, data: any) {
+    const stage = data.commit === true ? 'devops' : data.stage;
+    const step = nextStep(checklist, stage, Boolean(data.qaWithoutEnvironment));
+    if (step === 'halt' || step === 'human') return;
+
+    if (step === 'release') {
+      await this.release(organizationId, taskId);
+      return;
+    }
+
+    const roles = this.agentsService;
+    if (step === 'implement' || step === 'rework') {
+      if (step === 'rework') await roles.reopenChecklist(organizationId, taskId, stage === 'qa' ? ['review', 'qa'] : ['review']);
+      const engineer = await roles.agentForRole(organizationId, 'engineering');
+      return this.runStage(organizationId, taskId, engineer, 'implement', 'Aguardando engenharia: nenhum agente com cargo de engenharia pôde ser acionado.');
+    }
+    if (step === 'review') {
+      const reviewer = await roles.agentForRole(organizationId, 'review');
+      return this.runStage(organizationId, taskId, reviewer, 'review', 'Aguardando revisor: nenhum agente com cargo de revisão pôde ser acionado.');
+    }
+    if (step === 'qa') {
+      const qaAgent = await roles.agentForRole(organizationId, 'qa');
+      if (qaAgent) return this.runStage(organizationId, taskId, qaAgent, 'qa');
+      // Sem agente de QA a tarefa segue para o deploy ou o Release
+      const pending = checklist.items.some((item) => item.role === 'devops' && item.status === 'pending');
+      if (pending) return this.runDevops(organizationId, taskId);
+      await this.release(organizationId, taskId);
+      return;
+    }
+    // Depois do QA o commit sai se o checklist tem item de deploy ou o projeto pediu commit automático
+    const pending = checklist.items.some((item) => item.role === 'devops' && item.status === 'pending');
+    if (step === 'devops' || pending || (await roles.autoCommitAfterQa(organizationId, taskId))) {
+      return this.runDevops(organizationId, taskId);
+    }
+    await this.release(organizationId, taskId);
+  }
+
+  private async runDevops(organizationId: string, taskId: string) {
+    const devops = await this.agentsService.agentForRole(organizationId, 'devops');
+    return this.runStage(organizationId, taskId, devops, 'devops', 'Aguardando deploy: nenhum agente com cargo de DevOps pôde ser acionado.');
+  }
+
+  // Aciona o agente da etapa. Sem agente, sem limite de execuções ou com a máquina offline a esteira para e a pessoa vê no Início
+  private async runStage(organizationId: string, taskId: string, agent: string | undefined, stage: string, haltedReason?: string) {
+    const result = agent && this.countAutoRun(taskId) ? await this.dispatchTask(organizationId, taskId, { agent, stage, auto: true }).catch(() => null) : null;
+    if (result && !result.machineOffline) return;
+
+    const halted = await this.agentsService.haltChecklist(organizationId, taskId, haltedReason || 'A esteira parou: a próxima etapa não pôde ser acionada.');
+    if (halted) this.emitTask(organizationId, 'task:updated', halted);
+  }
+
+  private async release(organizationId: string, taskId: string) {
+    const task = await this.agentsService.setStatus(organizationId, taskId, 'release');
+    if (task) this.emitTask(organizationId, 'task:updated', task);
   }
 
   // Esteira automática: quem terminou passa a vez para os agentes que mencionou com @ no resumo.

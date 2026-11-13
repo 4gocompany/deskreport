@@ -35,8 +35,10 @@ model Task {
   type                String    @default("feature")
   // Máquina escolhida para rodar a tarefa. Sem ela vale a máquina padrão do projeto
   machineId           String?   @map("machine_id")
+  // Checklist por cargo { items, extraDeliveries, haltedReason, updatedAt }
+  checklist           Json?     @map("checklist")
 
-  team         Team?              @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  team        Team?              @relation(fields: [teamId], references: [id], onDelete: SetNull)
   comments     TaskComment[]
   chatSessions AgentChatSession[]
   attachments  TaskAttachment[]

@@ -4,6 +4,7 @@ import { createHash, randomBytes } from 'crypto';
 import { auth } from '../../auth/auth';
 import { PrismaService } from '../../prisma/prisma.service';
 import { budgets, complexities, finalTier, routing } from '../tasks/complexity';
+import { applyStage, defaultChecklist, haltedChecklist, reopenRoles, specChecklist, stageRole, TaskChecklist, ChecklistRole } from '../tasks/checklist';
 import { taskTypes } from '../tasks/task-types';
 import { answerHtml, answerItems, answerText, findPo, normalizeQuestions, waitingFor } from '../tasks/waiting';
 
@@ -172,6 +173,33 @@ export class AgentsService {
     const machines = await this.prisma.agentMachine.findMany({ where: { organizationId }, select: { agentRoles: true } });
     const enabled = await this.enabledAgents(organizationId);
     return enabled.find((agent) => machines.some((machine) => (machine.agentRoles as any)?.[agent]?.includes(role)));
+  }
+
+  async agentHasRole(organizationId: string, agent: string, role: string) {
+    const machines = await this.prisma.agentMachine.findMany({ where: { organizationId }, select: { agentRoles: true } });
+    return machines.some((machine) => (machine.agentRoles as any)?.[agent]?.includes(role));
+  }
+
+  // Esteira parada: a tarefa aparece no Início com o motivo
+  async haltChecklist(organizationId: string, taskId: string, reason: string) {
+    const task = await this.prisma.task.findFirst({ where: { id: taskId, companyId: organizationId }, select: { checklist: true } });
+    if (!task) return null;
+
+    await this.prisma.task.update({ where: { id: taskId, companyId: organizationId }, data: { checklist: haltedChecklist(task.checklist as TaskChecklist | null, reason) as any } });
+    return this.prisma.task.findFirst({ where: { id: taskId, companyId: organizationId }, include: taskInclude });
+  }
+
+  // Volta para pendente os itens dos cargos que precisam ser reavaliados depois da correção
+  async reopenChecklist(organizationId: string, taskId: string, roles: ChecklistRole[]) {
+    const task = await this.prisma.task.findFirst({ where: { id: taskId, companyId: organizationId }, select: { checklist: true } });
+    if (!task?.checklist) return;
+
+    await this.prisma.task.update({ where: { id: taskId, companyId: organizationId }, data: { checklist: reopenRoles(task.checklist as unknown as TaskChecklist, roles) as any } });
+  }
+
+  async setStatus(organizationId: string, taskId: string, status: string) {
+    await this.prisma.task.updateMany({ where: { id: taskId, companyId: organizationId }, data: { status } });
+    return this.prisma.task.findFirst({ where: { id: taskId, companyId: organizationId }, include: taskInclude });
   }
 
   // Tarefa nova com vários agentes começa por um só. Com arquiteto entre eles a spec vem antes, senão quem implementa.
@@ -512,12 +540,17 @@ export class AgentsService {
     }
 
     await this.ensureAgentUsers(organizationId, [agent]);
+    // Tarefa que vai direto para a Engenharia, sem spec e sem execução anterior de agente, ganha o checklist padrão do tipo
+    const firstRun = !task.checklist && !task.specEditedAt && !data?.stage && mode === 'task' && !task.comments.some((c) => (c.metadata as any)?.agent) && (await this.agentHasRole(organizationId, agent, 'engineering'));
+    // A revisão pedida pela esteira põe a tarefa em Revisão junto com o acionamento do revisor
+    const reviewing = data?.stage === 'review' && !machineOffline;
     const updated = await this.prisma.task.update({
-      where: { id: task.id },
+      where: { id: task.id, companyId: organizationId },
       data: {
         // Máquina offline na esteira automática: o agente fica atribuído e a tarefa não anda
         // O agente PO só responde: não muda o status nem vira responsável
-        status: agent === 'antigravity' || mode === 'comment' || machineOffline || data?.stage === 'po' ? task.status : 'in-progress',
+        status: reviewing ? 'review' : agent === 'antigravity' || mode === 'comment' || machineOffline || ['po', 'qa'].includes(data?.stage) ? task.status : 'in-progress',
+        checklist: firstRun ? (defaultChecklist(task.type) as any) : undefined,
         assignees: data?.stage === 'po' ? undefined : { connect: { id: agentUsers[agent].id } },
         // A escolha feita agora vale para as próximas etapas da esteira
         ...(data?.machineId && machine && data.machineId !== task.machineId ? { machineId: machine.id } : {}),
@@ -547,13 +580,14 @@ export class AgentsService {
       machineOffline: machineOffline || undefined,
       mode,
       // Etapa pedida pela esteira. Hoje só o QA, que o runner não adivinha pelo cargo quando o mesmo agente revisa
-      stage: data?.stage === 'qa' ? 'qa' : data?.stage === 'po' ? 'po' : undefined,
+      stage: ['spec', 'implement', 'review', 'qa', 'devops', 'po'].includes(data?.stage) ? data.stage : undefined,
+      checklist: updated.checklist || null,
       // O agente PO recebe as perguntas abertas para responder
       waitingFor: data?.stage === 'po' ? task.waitingFor : undefined,
       // Ambiente de QA do projeto. Vem só do cadastro, nunca de texto de tarefa ou comentário
       environment: data?.stage === 'qa' ? await this.qaEnvironment(organizationId, task.project, machine?.id) : undefined,
       // Commit automático depois do QA aprovado: o DevOps commita, sem push nem deploy
-      commit: data?.commit === true ? true : undefined,
+      commit: data?.commit === true || data?.stage === 'devops' ? true : undefined,
       // Micro-Router: o client usa o modelo sugerido quando a máquina não fixou um modelo para o agente
       complexity: task.complexity,
       // O tipo define a skill injetada no prompt do agente
@@ -1045,18 +1079,35 @@ export class AgentsService {
     const agentUser = agentUsers[data.agent];
     const tokens = Number.isInteger(data.tokens) && data.tokens > 0 ? data.tokens : 0;
     if (tokens) {
-      await this.prisma.task.update({ where: { id: task.id }, data: { tokensUsed: { increment: tokens } } });
+      await this.prisma.task.update({ where: { id: task.id, companyId: organizationId }, data: { tokensUsed: { increment: tokens } } });
     }
     // Parada pelo usuário: a tarefa volta para A fazer
     if (data.stopped && task.status === 'in-progress') {
-      await this.prisma.task.update({ where: { id: task.id }, data: { status: 'todo' } });
+      await this.prisma.task.update({ where: { id: task.id, companyId: organizationId }, data: { status: 'todo' } });
     }
-    // Com pergunta aberta a tarefa espera a resposta e não segue para a revisão
-    if (data.exitCode === 0 && data.agent !== 'antigravity' && data.mode !== 'comment' && !task.waitingFor) {
+
+    // Checklist: a etapa de spec monta o da tarefa, as demais marcam os itens do próprio cargo
+    const finished = data.exitCode === 0 && !data.stopped && data.mode !== 'comment' && !task.waitingFor;
+    const current = task.checklist as TaskChecklist | null;
+    const role = stageRole(data);
+    let checklist: TaskChecklist | null = null;
+    if (finished && data.stage === 'spec') {
+      const built = text(data.spec, 30000)?.trim() ? specChecklist(data.checklist) : null;
+      checklist = built || haltedChecklist(current, 'A etapa de especificação terminou sem montar o checklist completo da tarefa.');
+    } else if (finished && role && current?.items?.length) {
+      checklist = applyStage(current, role, data, data.agent).checklist;
+    }
+    if (checklist) {
+      await this.prisma.task.update({ where: { id: task.id, companyId: organizationId }, data: { checklist: checklist as any } });
+    }
+    const haltedReason = checklist?.haltedReason || undefined;
+
+    // Tarefa sem checklist (antiga ou runner antigo) segue a regra de antes. Com checklist a revisão só começa quando a esteira aciona o revisor
+    if (!checklist && !current && data.exitCode === 0 && data.agent !== 'antigravity' && data.mode !== 'comment' && !task.waitingFor) {
       // A revisão vai para o Antigravity só quando a organização usa esse agente
       const hasReviewer = (await this.enabledAgents(organizationId)).includes('antigravity');
       await this.prisma.task.update({
-        where: { id: task.id },
+        where: { id: task.id, companyId: organizationId },
         data: hasReviewer ? { status: 'review', assignees: { connect: { id: agentUsers.antigravity.id } } } : { status: 'review' },
       });
     }
@@ -1081,8 +1132,8 @@ export class AgentsService {
         data: {
           taskId: task.id,
           userId,
-          content: finishedComment(data),
-          metadata: agent ? commentMetadata(agent, data) : undefined,
+          content: finishedComment(data, Boolean(current || checklist), haltedReason),
+          metadata: agent ? { ...commentMetadata(agent, data), haltedReason } : undefined,
         },
       });
     }
@@ -1103,6 +1154,7 @@ export function compactTask(task: any) {
     priority: task.priority,
     tags: task.tags,
     waitingFor: task.waitingFor,
+    checklist: task.checklist || undefined,
     reporterId: task.reporterId,
     assignees: task.assignees?.map((user: any) => ({ id: user.id, name: user.name })),
     comments: task.comments?.map((comment: any) => ({
@@ -1177,6 +1229,8 @@ function commentMetadata(agent: string, data: any) {
     exitCode,
     error: exitCode !== undefined && exitCode !== 0 && !data?.stopped ? true : undefined,
     stage: text(data?.stage, 40),
+    changelog: text(data?.changelog, 4000)?.trim() || undefined,
+    touchedFiles: Array.isArray(data?.touchedFiles) && data.touchedFiles.length ? data.touchedFiles.slice(0, 50).map((file: unknown) => text(file) || '') : undefined,
   };
 }
 
@@ -1226,24 +1280,6 @@ function cleanSummary(raw: string | undefined): string {
   return filtered.join('\n').trim();
 }
 
-function formatChangelog(files: string[]): string {
-  if (!files || files.length === 0) return '';
-
-  const list = files.map((file) => {
-    const trimmed = file.trim();
-    const status = trimmed.slice(0, 2).trim();
-    const filePath = trimmed.slice(2).trim();
-
-    let prefix = 'Modificado';
-    if (status === 'A' || status === '??') prefix = 'Novo';
-    else if (status === 'D') prefix = 'Removido';
-
-    return `<li><strong>[${prefix}]</strong> <code>${escapeHtml(filePath)}</code></li>`;
-  });
-
-  return `<p><strong>Changelog de arquivos:</strong></p><ul>${list.join('')}</ul>`;
-}
-
 const stageTitles: Record<string, string> = {
   spec: 'Spec concluída.',
   implement: 'Implementação concluída.',
@@ -1277,26 +1313,21 @@ export function approved(text: string) {
 }
 
 // O comentário é exibido como HTML no painel, então tudo que vem do agente é escapado
-function finishedComment(data: any) {
+function finishedComment(data: any, withChecklist = false, haltedReason?: string) {
   let result = data.stopped ? 'Execução parada pelo usuário.' : '';
   if (typeof data.exitCode === 'number' && data.exitCode !== 0 && !data.stopped) result = `Erro na execução (código ${data.exitCode}).`;
   if (data.exitCode === 0 && stageTitles[data.stage]) result = stageTitles[data.stage];
   const verdict = typeof data.comment === 'string' && data.comment ? data.comment : typeof data.summary === 'string' ? data.summary : '';
   if (data.exitCode === 0 && data.stage === 'review') result = approved(verdict) ? 'Revisão concluída: aprovada.' : 'Revisão concluída: com ajustes.';
-  if (data.exitCode === 0 && data.stage === 'implement' && !data.touchedFiles?.length) result = 'Implementação não entregue: nenhum arquivo foi alterado.';
+  if (haltedReason) result = haltedReason;
+  else if (!withChecklist && data.exitCode === 0 && data.stage === 'implement' && !data.touchedFiles?.length) result = 'Implementação não entregue: nenhum arquivo foi alterado.';
   // QA sem ambiente no ar não abriu o navegador: o título não pode dizer que o QA foi feito
   if (data.exitCode === 0 && data.stage === 'qa' && data.qaWithoutEnvironment) result = 'QA só no código: sem ambiente para testar no navegador.';
   const summary = cleanSummary(text(data.summary, 4000));
-  const changelog = text(data.changelog, 4000)?.trim();
-  const files = Array.isArray(data.touchedFiles) ? data.touchedFiles.slice(0, 50).map((file: unknown) => text(file) || '') : [];
 
   let html = '';
-  if (result) html += `<p>${result}</p>`;
+  if (result) html += `<p>${escapeHtml(result)}</p>`;
   if (summary) html += `<p>${escapeHtml(summary).replace(/\n/g, '<br>')}</p>`;
-  if (changelog) html += `<p><strong>O que mudou:</strong><br>${escapeHtml(changelog).replace(/\n/g, '<br>')}</p>`;
-  if (files.length > 0) {
-    html += formatChangelog(files);
-  }
   return html || '<p>Tarefa concluída sem comentários adicionais.</p>';
 }
 

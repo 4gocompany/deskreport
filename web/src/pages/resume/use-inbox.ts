@@ -120,6 +120,10 @@ export function buildInbox(tasks: TaskCardProps[], projects: Project[], agents: 
     const failed = failedRun(task);
     if (failed) items.push({ key: `error-${task.id}-${failed.id}`, category: 'execution_error', label: 'Erro de execução', tone: 'danger', since: String(failed.createdAt), task, comment: failed });
 
+    if (task.checklist?.haltedReason) {
+      items.push({ key: `halt-${task.id}-${task.checklist.updatedAt}`, category: 'execution_error', label: 'Checklist pendente', tone: 'danger', since: task.checklist.updatedAt, task });
+    }
+
     if (task.dueDate && daysUntil(task.dueDate) <= 3) {
       const late = daysUntil(task.dueDate) < 0;
       items.push({ key: `due-${task.id}`, category: 'deadline', label: late ? 'Atrasada' : 'Prazo próximo', tone: late ? 'danger' : 'warn', task });

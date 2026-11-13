@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Param, Put, Delete } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, Put, Patch, Delete } from '@nestjs/common';
 import { TasksService } from './tasks.service';
 import { ActiveOrg } from '../../auth/active-org.decorator';
 import { ActiveUser } from '../../auth/active-user.decorator';
@@ -43,6 +43,13 @@ export class TasksController {
     @Put(':id')
     update(@ActiveOrg() orgId: string, @Param('id') id: string, @Body() data: any) {
         return this.tasksService.update(id, orgId, data);
+    }
+
+    @Patch(':id/checklist')
+    async updateChecklist(@ActiveOrg() orgId: string, @ActiveUser() userId: string, @Param('id') id: string, @Body() data: any) {
+        const task = await this.tasksService.updateChecklist(id, orgId, userId, data);
+        this.agentsGateway.emitTask(orgId, 'task:updated', task);
+        return task;
     }
 
     // Camada 1 (Jev) responde na hora. Sem chave, a máquina refina depois e o painel recebe o task:updated

@@ -20,7 +20,7 @@ import {
   MessageCircleQuestion,
   CalendarDays,
 } from 'lucide-react';
-import { TaskCardProps, TaskComment, TaskStatus, TaskType, PRIORITY_CONFIG, STATUS_CONFIG, TASK_TYPE_CONFIG, waitingQuestions } from './tasks-data';
+import { checklistProgress, TaskCardProps, TaskComment, TaskStatus, TaskType, PRIORITY_CONFIG, STATUS_CONFIG, TASK_TYPE_CONFIG, waitingQuestions } from './tasks-data';
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { RichEditor } from '../../components/ui/rich-editor';
 import { RichText, toEditorHtml } from '../../components/ui/rich-text';
@@ -38,6 +38,7 @@ import { dateDay } from '../resume/use-inbox';
 import { TokenMeter } from './components/token-meter';
 import { UserAvatar } from './components/user-avatar';
 import { TaskAttachments } from './components/task-attachments';
+import { ChangelogTab, ChecklistTab } from './components/task-checklist';
 
 interface TaskDetailDrawerProps {
   task: TaskCardProps | null;
@@ -148,6 +149,7 @@ export function TaskDetailDrawer({
   const [displayTask, setDisplayTask] = useState<TaskCardProps | null>(null);
   const [comment, setComment] = useState('');
   const [commentAgent, setCommentAgent] = useState('');
+  const [drawerTab, setDrawerTab] = useState<'comments' | 'checklist' | 'changelog'>('comments');
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [editedTitle, setEditedTitle] = useState('');
   const [isEditingDescription, setIsEditingDescription] = useState(false);
@@ -473,6 +475,7 @@ export function TaskDetailDrawer({
     }
   }
 
+  const progress = checklistProgress(displayTask?.checklist);
   const selectClass =
     'h-8 w-44 px-2.5 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-xs font-medium text-zinc-800 dark:text-zinc-200 outline-none focus:border-blue-500 transition-colors cursor-pointer';
 
@@ -646,16 +649,31 @@ export function TaskDetailDrawer({
 
               {/* COMENTÁRIOS */}
               <div className='space-y-4 pt-4 border-t border-zinc-200 dark:border-zinc-800'>
-                <div className='flex items-center gap-2'>
-                  <h3 className='text-xs font-semibold text-zinc-500 dark:text-zinc-400'>
-                    Comentários
-                  </h3>
-                  {displayTask.comments && displayTask.comments.length > 0 && (
-                    <span className='px-2 py-0.5 rounded-full bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 text-xs font-medium'>
-                      {displayTask.comments.length}
-                    </span>
-                  )}
+                <div className='flex items-center gap-4 border-b border-zinc-200 dark:border-zinc-800'>
+                  {([['comments', 'Comentário', displayTask.comments?.length || 0], ['checklist', 'Checklist', `${progress.done}/${progress.total}`], ['changelog', 'Changelog', 0]] as const).map(([id, label, count]) => (
+                    <button
+                      key={id}
+                      type='button'
+                      onClick={() => setDrawerTab(id)}
+                      className={`-mb-px flex items-center gap-2 border-b-2 pb-2 text-xs font-semibold ${drawerTab === id ? 'border-blue-500 text-blue-600 dark:text-blue-400' : 'border-transparent text-zinc-500 dark:text-zinc-400'}`}
+                    >
+                      {label}
+                      {!!count && count !== '0/0' && (
+                        <span className='px-2 py-0.5 rounded-full bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 text-xs font-medium'>{count}</span>
+                      )}
+                    </button>
+                  ))}
                 </div>
+
+                {drawerTab === 'checklist' && <ChecklistTab task={displayTask} />}
+                {drawerTab === 'changelog' && <ChangelogTab comments={newestFirst(displayTask.comments || [])} />}
+                {drawerTab === 'comments' && (
+                  <>
+                {displayTask.checklist?.haltedReason && (
+                  <div className='rounded-xl border border-red-200 dark:border-red-500/30 bg-red-50 dark:bg-red-500/10 p-3 text-xs text-red-700 dark:text-red-300'>
+                    A esteira parou: {displayTask.checklist.haltedReason} Revise o checklist e acione o agente de novo.
+                  </div>
+                )}
 
                 {/* Pergunta aberta pelo agente ou pela equipe */}
                 {task && displayTask.waitingFor && (
@@ -810,6 +828,8 @@ export function TaskDetailDrawer({
                     </div>
                   )}
                 </div>
+                  </>
+                )}
               </div>
             </div>
 

@@ -1129,10 +1129,28 @@ function poResult(stage, sections) {
   }
 }
 
+function jsonSection(value) {
+  try {
+    return JSON.parse(String(value || '').replace(/^```(?:json)?\s*|\s*```$/g, ''));
+  } catch {
+    return undefined;
+  }
+}
+
+// CHECKLIST: na spec é a lista de itens por cargo. Nas outras etapas marca os itens do cargo, e a revisão e o QA também reabrem e criam itens
+function checklistResult(stage, sections) {
+  if (!sections || stage === 'po' || stage === 'comment') return {};
+  const checklist = jsonSection(sections.checklist);
+  const extra = jsonSection(sections.extra);
+  const extraDeliveries = Array.isArray(extra) ? extra : undefined;
+  if (stage === 'spec') return { checklist: Array.isArray(checklist) ? checklist : undefined };
+  return { checklistUpdates: checklist?.items, reopenItems: checklist?.reopenItems, newItems: checklist?.newItems, extraDeliveries };
+}
+
 function finish(task, exitCode, summary, touchedFiles = [], stopped = false, classification = null, sections = null, stage = null) {
   delete running[task.agent];
   saveState();
-  socket.emit('machine:task-finished', { taskId: task.taskId, agent: task.agent, mode: task.mode, handoff: Boolean(task.comment), exitCode, summary, touchedFiles, stopped, tokens: task.tokens, contextTokens: task.contextTokens, contextLimit: task.contextLimit, model: task.model, classification, stage: stageRole(stage, task.agent) === 'qa' ? 'qa' : stage, spec: sections?.spec, comment: sections?.comment, changelog: sections?.changelog, ...poResult(stage, sections), qaWithoutEnvironment: task.qaWithoutEnvironment || undefined });
+  socket.emit('machine:task-finished', { taskId: task.taskId, agent: task.agent, mode: task.mode, handoff: Boolean(task.comment), exitCode, summary, touchedFiles, stopped, tokens: task.tokens, contextTokens: task.contextTokens, contextLimit: task.contextLimit, model: task.model, classification, stage: stageRole(stage, task.agent) === 'qa' ? 'qa' : stage, commit: task.commit || undefined, spec: sections?.spec, comment: sections?.comment, changelog: sections?.changelog, ...poResult(stage, sections), ...checklistResult(stage, sections), qaWithoutEnvironment: task.qaWithoutEnvironment || undefined });
   notify(`${agentLabels[task.agent]} ${exitCode === 0 ? 'terminou' : 'parou'}: ${task.title}`);
   agents[task.agent] = { state: 'idle', action: exitCode === 0 ? 'Concluído' : `Parou com código ${exitCode}`, model: task.model };
   broadcast();
@@ -2184,12 +2202,21 @@ function stageModelRole(stage, agent) {
 
 const poSections = ['ANSWERS:', '{ "source": "arquivo:linha", "answers": ["resposta 1", "resposta 2"] }', 'COMMENT:', '(curto: de onde vieram as respostas)'].join('\n');
 
-function sectionsNote(stage, agent) {
+const specChecklistSection = ['CHECKLIST:', '[{ "role": "engineering|review|qa|devops", "text": "item curto e verificável" }] (itens agrupados por cargo: engineering, review, qa e, quando couber, devops)'].join('\n');
+const stageChecklistSection = ['CHECKLIST:', '{ "items": [{ "id": "eng-1", "status": "done|not_done|na|conflict", "reason": "motivo se not_done ou trecho da spec se conflict" }] }', 'EXTRA: (opcional, só se fez algo além do checklist)', '[{ "text": "o que foi feito além da spec", "reason": "por que faz muito sentido para a entrega" }]'].join('\n');
+const reviewChecklistSection = [stageChecklistSection, 'Na reprovação, dentro do JSON do CHECKLIST acrescente "reopenItems": [{ "id": "eng-1", "reason": "motivo da reprovação" }] para reabrir o item original de engineering e, se precisar, "newItems": [{ "role": "engineering", "text": "novo item" }].'].join('\n');
+
+function sectionsNote(stage, agent, task) {
   if (stage === 'comment') return '';
   if (stage === 'po') return `Formato da resposta final, em seções com cada marcador sozinho numa linha. Se não puder responder tudo, use apenas o marcador ESCALATE: sozinho numa linha e o motivo curto na linha seguinte:\n${poSections}`;
   const role = stageRole(stage, agent);
   const lines = role ? config.rolePrompts?.[role] || rolePromptDefaults[role] : reviewSections;
-  return `Formato da resposta final, em seções com cada marcador sozinho numa linha:\n${lines}`;
+  const checklist = stage === 'spec' ? specChecklistSection : usesChecklist(task, stage) ? (stage === 'implement' ? stageChecklistSection : reviewChecklistSection) : '';
+  return `Formato da resposta final, em seções com cada marcador sozinho numa linha:\n${[lines, checklist].filter(Boolean).join('\n')}`;
+}
+
+function usesChecklist(task, stage) {
+  return Boolean(task?.checklist?.items?.length) && !['comment', 'po', 'spec'].includes(stage);
 }
 
 function missingMarkers(role, text) {
@@ -2235,7 +2262,7 @@ function typeNote(type) {
 // Tarefa interrompida (cota ou client reiniciado) volta com o aviso e o último progresso
 function buildPrompt(task, cwd) {
   const yagni = config.yagniMode ? yagniNote : '';
-  const prompt = [taskPrompt(task, cwd), typeNote(task.type), qaNote(task), taskStage(task, cwd) === 'qa' ? environmentNote(task) : '', ['implement', 'review', 'qa'].includes(taskStage(task, cwd)) ? verifyNote : '', sectionsNote(taskStage(task, cwd), task.agent), safetyNote, taskStage(task, cwd) === 'comment' ? '' : outOfScopeNote, yagni, teamNote(task.agent), gitContext(cwd), fileLinkNote(cwd)].filter(Boolean).join('\n\n');
+  const prompt = [taskPrompt(task, cwd), typeNote(task.type), qaNote(task), taskStage(task, cwd) === 'qa' ? environmentNote(task) : '', ['implement', 'review', 'qa'].includes(taskStage(task, cwd)) ? verifyNote : '', sectionsNote(taskStage(task, cwd), task.agent, task), safetyNote, taskStage(task, cwd) === 'comment' ? '' : outOfScopeNote, yagni, teamNote(task.agent, usesChecklist(task, taskStage(task, cwd)) || taskStage(task, cwd) === 'spec'), gitContext(cwd), fileLinkNote(cwd)].filter(Boolean).join('\n\n');
   if (!task.resumed) return prompt;
   return [
     prompt,
@@ -2309,11 +2336,13 @@ function gitOutput(cwd, args) {
 }
 
 // Esteira do time: cada etapa termina mencionando com @ o agente da próxima, conforme os cargos desta máquina
-function teamNote(agent) {
+function teamNote(agent, withChecklist = false) {
   const team = enabledAgents
     .filter((other) => other !== agent && config.agentRoles[other]?.length)
     .map((other) => `- ${agentMentions(other)} (${agentDisplay(other)}): ${config.agentRoles[other].map((role) => roleCatalog[role][0]).join(', ')}`);
   if (team.length === 0) return '';
+  // Com checklist a API escolhe a próxima etapa pelo estado dos itens: ninguém é mencionado
+  if (withChecklist) return ['Time de agentes desta máquina:', ...team].join('\n');
 
   return [
     'Time de agentes desta máquina:',
@@ -2346,7 +2375,7 @@ function parseSections(raw) {
   const sections = {};
   let current = '';
   for (const line of raw.split('\n')) {
-    const marker = line.trim().match(/^(SPEC|COMMENT|CHANGELOG|ANSWERS|ESCALATE):$/);
+    const marker = line.trim().match(/^(SPEC|CHECKLIST|EXTRA|COMMENT|CHANGELOG|ANSWERS|ESCALATE):$/);
     if (marker) {
       current = marker[1].toLowerCase();
       sections[current] = '';
@@ -2423,6 +2452,9 @@ function taskStage(task, cwd) {
   if (task.mode === 'comment') return 'comment';
   // A esteira pede o QA direto, mesmo para quem também revisa
   if (task.stage === 'qa') return 'qa';
+  // Etapas pedidas pela esteira do checklist
+  if (['spec', 'review', 'implement'].includes(task.stage)) return task.stage;
+  if (task.stage === 'devops') return 'implement';
   if (canEdit(task.agent)) return 'implement';
   // Tarefa nova sem spec começa pela spec. Arquivo alterado na pasta pode ser de outra pessoa e não prova que houve implementação.
   // Runner com API antiga não recebe hasSpec e segue a regra de baixo
@@ -2443,6 +2475,9 @@ function taskPrompt(task, cwd) {
   const notes = comments.length > 0 ? `Comentários mais recentes na tarefa (os anteriores estão no deskreport_get_task):\n${external(comments.map((c) => `- ${c}`).join('\n'))}` : '';
   // Etapa passada por outro agente da esteira com @
   const request = task.mode !== 'comment' && task.comment ? `Pedido do agente anterior para esta etapa:\n${external(plainText(task.comment))}` : '';
+  // Com checklist o guia é a spec e os itens do cargo, não o histórico de comentários nem o pedido em texto livre
+  const guided = usesChecklist(task, stage);
+  const history = guided ? [] : [notes, request];
 
   if (stage === 'comment') {
     const editRule = canEdit(task.agent)
@@ -2491,6 +2526,7 @@ function taskPrompt(task, cwd) {
         'Leia o código desta pasta e escreva a especificação: o que muda, arquivos e rotas afetados, modelo de dados e regras de negócio.',
         'Não implemente a tarefa e não faça commit.',
         'Se houver dúvida de produto ou decisão de escopo que mude o comportamento, não assuma: chame deskreport_ask_human reunindo de 1 a 4 perguntas na mesma chamada (a opção recomendada em primeiro lugar, cada opção com label e description explicando a consequência) e encerre respondendo apenas COMMENT: avisando que aguardará a resposta do Product Owner, sem emitir SPEC: ainda.',
+        'Monte também o checklist da tarefa na seção CHECKLIST: itens curtos e verificáveis agrupados por cargo (engineering, review, qa e, quando couber, devops). Sem itens de engineering, review e qa a esteira para.',
         'Responda em português. A spec completa vai na seção SPEC e substitui a descrição da tarefa.',
       ].join('\n'),
     ].filter(Boolean).join('\n\n');
@@ -2501,8 +2537,8 @@ function taskPrompt(task, cwd) {
       `Code Review da tarefa do DeskReport:\n${title}`,
       description,
       attachmentsNote(task),
-      notes,
-      request,
+      ...history,
+      checklistNote(task, stage),
       [
         'Você é o revisor do time. Rode `git status -s -- .` e `git diff` nesta pasta e revise as alterações.',
         'Se a implementação já foi commitada, revise também os commits desta tarefa com `git log` e `git show`.',
@@ -2512,6 +2548,7 @@ function taskPrompt(task, cwd) {
         'Não altere arquivos e não faça commit.',
         'Responda em português com um parecer objetivo: aprovado ou não, e a lista de problemas com arquivo e linha. Esse texto vira o comentário da tarefa.',
         'Reprovado volta para a Engenharia corrigir em um novo commit, aprovado segue para o DevOps.',
+        ...(guided ? ['Cruze o checklist marcado, o bloco Além da spec, a spec e o git diff com os commits. Alterar regra de negócio fora da spec é furo grave. Se reprovar, reabra o item original de engineering com o motivo em reopenItems e crie itens novos em newItems só se necessário.'] : []),
       ].join('\n'),
     ].filter(Boolean).join('\n\n');
   }
@@ -2520,8 +2557,8 @@ function taskPrompt(task, cwd) {
     `Tarefa do DeskReport:\n${title}`,
     description,
     attachmentsNote(task),
-    notes,
-    request,
+    ...history,
+    checklistNote(task, stage),
     [
       'Ao finalizar a tarefa, responda no final apenas com um comentário claro e direto em português do que foi feito e da regra de negócio ajustada, com no máximo 15 linhas.',
       'Nunca inclua no resumo final saídas de comandos (como $ cd, npx tsc, git diff, head), logs de terminal nem trechos longos de código.',
@@ -2532,12 +2569,31 @@ function taskPrompt(task, cwd) {
   ].filter(Boolean).join('\n\n');
 }
 
+const checklistRule = 'A spec é a fonte da verdade e o checklist é o guia de execução. Cruze cada item do checklist com a spec antes de executar. Se um item do checklist entrar em conflito com a spec, não o execute: marque-o como conflict informando o trecho da spec que justifica. O agente não escolhe a próxima etapa nem menciona outro agente com @: a esteira avança pelo estado do checklist. Marque todos os itens do seu cargo na seção CHECKLIST.';
+
+function checklistNote(task, stage) {
+  if (!usesChecklist(task, stage)) return '';
+
+  const role = stage === 'implement' ? (task.commit ? 'devops' : 'engineering') : stage;
+  const line = (item) => `- [${item.status}] (${item.id}) ${item.text}${item.reason ? ` | motivo: ${item.reason}` : ''}`;
+  const items = task.checklist.items;
+  const previous = items.filter((item) => item.role !== role);
+  const own = items.filter((item) => item.role === role);
+  const extra = task.checklist.extraDeliveries || [];
+  return [
+    previous.length ? `Itens das outras etapas (somente leitura):\n${external(previous.map((item) => `${item.role}${line(item)}`).join('\n'))}` : '',
+    `Itens do seu cargo nesta etapa (execute e marque cada um):\n${external(own.map(line).join('\n') || '(nenhum item neste cargo)')}`,
+    ['review', 'qa'].includes(stage) ? `Além da spec (o que a Engenharia declarou ter feito fora do checklist):\n${external(extra.map((entry) => `- ${entry.text} (motivo: ${entry.reason})`).join('\n') || '(nada declarado)')}` : '',
+    checklistRule,
+  ].filter(Boolean).join('\n\n');
+}
+
 function finalRules(task, stage) {
   const others = 'Nunca desfaça nem apague alteração que você não fez nesta execução (git checkout, git restore, git stash, git clean ou rm de arquivo não rastreado). Se a pasta tiver alteração de outra pessoa ou agente que atrapalhe a tarefa, pare e pergunte no comentário.';
   if (stage === 'qa') {
     return [
       'Você é o QA do time e não altera código nem faz commit.',
-      'Se achar um problema, descreva o passo, o esperado e o obtido, e mencione com @ o agente de Engenharia para corrigir. A correção volta para a revisão.',
+      usesChecklist(task, stage) ? 'Se achar um problema, marque o item como not_done com o passo, o esperado e o obtido no motivo, ou reabra o item de engineering em reopenItems. A esteira devolve para a Engenharia.' : 'Se achar um problema, descreva o passo, o esperado e o obtido, e mencione com @ o agente de Engenharia para corrigir. A correção volta para a revisão.',
       others,
     ];
   }
