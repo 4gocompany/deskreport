@@ -2421,7 +2421,8 @@ function gitHead(cwd) {
 function committedSince(cwd, head) {
   if (!head) return [];
   try {
-    return gitOutput(cwd, ['diff', '--name-only', head, 'HEAD', '--', '.']).split('\n').filter(Boolean);
+    // Mesmo formato do git status (letra do estado e caminho), que é o que a API e o painel leem
+    return gitOutput(cwd, ['diff', '--name-status', head, 'HEAD', '--', '.']).split('\n').filter(Boolean).map((line) => `${line[0]} ${line.split('\t').pop()}`);
   } catch {
     return [];
   }
