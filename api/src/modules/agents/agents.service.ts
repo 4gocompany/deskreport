@@ -529,6 +529,7 @@ export class AgentsService {
     return {
       task: updated,
       taskId: task.id,
+      shortId: task.shortId,
       title: task.title,
       description: task.description,
       // O runner usa o status para saber se o revisor revisa ou escreve a spec

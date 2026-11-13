@@ -1485,7 +1485,8 @@ async function runTask(task) {
   // Fotografia do repositório antes do agente: o comentário final lista só o que esta execução mexeu
   const startedAt = Date.now();
   const statusBefore = gitStatusLines(cwd);
-  const headBefore = gitHead(cwd);
+  // Execução retomada (cota, reinício do runner) conta os commits desde a primeira tentativa da etapa
+  task.headBefore = task.headBefore || gitHead(cwd);
   const denials = [];
 
   const stream = task.agent === 'claude';
@@ -1628,7 +1629,7 @@ async function runTask(task) {
       return;
     }
     // O engenheiro pode commitar ao terminar: o que entrou em commit nesta execução também conta como entrega
-    const touchedFiles = changedSince(cwd, statusBefore, startedAt).concat(stage === 'implement' ? committedSince(cwd, headBefore) : []);
+    const touchedFiles = changedSince(cwd, statusBefore, startedAt).concat(stage === 'implement' ? committedSince(cwd, task.headBefore) : []);
     // Fatos conferidos pelo runner, para o resumo do agente não esconder bloqueio nem trabalho que não aconteceu
     const facts = [];
     if (denials.length > 0 && task.agent === 'claude' && !claudeSandboxReady()) {
@@ -2540,8 +2541,9 @@ function finalRules(task, stage) {
       others,
     ];
   }
-  if (task.commit) return ['QA aprovado: faça o commit do que ainda estiver pendente desta tarefa, seguindo a regra de commits do projeto. Não faça push nem deploy.', others];
-  return ['Ao terminar, faça o commit só dos arquivos desta tarefa, seguindo a regra de commits do projeto. Correção pedida pela revisão entra em um novo commit. Não faça push nem deploy.', others];
+  const number = task.shortId ? ` A mensagem do commit começa com #${String(task.shortId).padStart(3, '0')}.` : '';
+  if (task.commit) return [`QA aprovado: faça o commit do que ainda estiver pendente desta tarefa, seguindo a regra de commits do projeto.${number} Não faça push nem deploy.`, others];
+  return [`Ao terminar, faça o commit só dos arquivos desta tarefa, seguindo a regra de commits do projeto.${number} Correção pedida pela revisão entra em um novo commit. Não faça push nem deploy.`, others];
 }
 
 // Registra o MCP deskreport nos agentes habilitados e tira dos desabilitados
